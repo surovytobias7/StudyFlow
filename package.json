@@ -4,11 +4,17 @@
   "private": true,
   "description": "StudyFlow — local-first, one-lesson-at-a-time tutor",
   "type": "module",
+  "overrides": {
+    "katex": "$katex",
+    "image-size": "2.0.4"
+  },
   "main": "dist/main.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && tsc -p ui/tsconfig.json && vite build",
     "start": "npm run build && node scripts/start.cjs",
-    "test": "npm run build && node --test dist/protocol.test.js"
+    "test": "npm run build && node --test dist/*.test.js",
+    "dev:ui": "vite --host 127.0.0.1",
+    "package:win": "npm run build && electron-builder --win nsis"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
@@ -17,14 +23,39 @@
     "@vitejs/plugin-react": "^6.1.2",
     "electron": "45.1.0",
     "electron-builder": "^26.18.0",
+    "pptxgenjs": "^4.0.1",
+    "prettier": "^3.9.10",
     "typescript": "^5.9.0",
     "vite": "^8.3.5"
   },
+  "build": {
+    "appId": "com.studyflow.desktop",
+    "productName": "StudyFlow",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "dist-ui/**",
+      "poc/preload.cjs",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
   "dependencies": {
+    "@mozilla/readability": "^0.6.0",
     "fast-xml-parser": "^5.11.2",
     "fflate": "^0.8.3",
     "jose": "^6.1.0",
     "katex": "^0.19.1",
+    "linkedom": "^0.18.14",
     "lucide-react": "^1.65.0",
     "pdfjs-dist": "^6.4.299",
     "react": "^19.3.1",

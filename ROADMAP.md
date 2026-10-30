@@ -1,61 +1,57 @@
-# StudyFlow — canonical development roadmap
+# StudyFlow — canonical roadmap
 
 ## Product invariant
-Teach exactly one lesson at a time. Every lesson has an independent persistent conversation. Only an explicit student action changes the current lesson. AI never controls completion percentages.
+Teach exactly one lesson at a time. Every lesson has its own persistent conversation. Student navigation controls the active lesson. Database state, never AI output, determines progress. Exercises are optional.
 
 ## Architecture decisions
-- Windows desktop: Electron, isolated sandboxed renderer, Node integration disabled, strictly scoped IPC.
-- Full application UI (after integration gate): React + TypeScript + Vite, Tailwind/shadcn, English/Slovak, independent tutor language, light/dark themes.
-- User design direction: similar to T3 Code — compact sidebar, restrained neutral palette, clean panel boundaries, focused conversation area, persistent lesson-path panel and accessible next-lesson action.
-- SQLite owned by main process; versioned migrations, foreign keys, transactions. Materials copied to app-managed local storage.
-- Entities: Courses, SourceMaterials, LearningPaths, Lessons, Conversations, Messages, LessonProgress, Exercises, ExerciseAttempts, Settings. Plan content and progress are separate.
-- Completion transaction takes explicit lesson ID and operation ID, records prior state for undo, updates current lesson to next unfinished lesson. Duplicate operation IDs are no-ops. Renderer immediately reflects committed database state.
-- OAuth and AI stay in main process. Windows DPAPI through Electron safeStorage protects credentials. Stable host ID survives disconnect. No API-key fallback or cloud database.
-- Official direct OAuth implementation is permitted by documentation; @siwc/local returned npm 404 on 2026-10-30 and is not a dependency.
-- Official model catalog queried per account. Responses uses store:false, stream:true, explicit local input history; success requires response.completed.
-- PDF/PPTX/image processing adapters preserve page/slide references; optional local LibreOffice conversion for slide visuals. Web extraction and legally accessible captions later; pasted transcript fallback. No code execution.
-- POC is intentionally a small diagnostic Electron window; production UI follows only after authenticated inference succeeds.
+- Windows 10 desktop: Electron 45, React, TypeScript and Vite. Custom CSS tokens implement the requested T3 Code-inspired neutral panels, compact sidebar and restrained violet accents. No hosting or cloud database.
+- SQLite through Node's built-in SQLite driver, owned by the main process: versioned migration, foreign keys, WAL, transactional transitions.
+- Courses, SourceMaterials, LearningPaths, Lessons, Conversations, Messages, LessonProgress, Exercises, ExerciseAttempts, Settings and CompletionEvents. Plans and progress remain separate.
+- Completion uses explicit lesson/operation IDs and a transaction; repeat events are no-ops. Undo, revisit and incomplete/review states are application-controlled.
+- OAuth/AI/file processing live outside the renderer. Windows DPAPI protects tokens; stable host ID survives disconnect. Narrow validated IPC, sandbox/context isolation, CSP, no Node integration, no arbitrary code execution.
+- Official direct OAuth is implemented because @siwc/local returned public npm 404. No copied cookies, unofficial ChatGPT routes, API key or alternative billing path.
+- Models are discovered per account. Responses always use store:false, stream:true and explicit history. Success requires completed text and response.completed.
+- Modular local importers for PDF/PPTX/images/text, public HTTPS readability, public YouTube captions and pasted transcript fallback. Public URL fetches validate and pin DNS results, bound downloads and recheck redirects.
+- Interface English/Slovak and tutor language are independent. Dark/light settings persist locally.
 
-## Phases and status
-1. **Current:** repository initialization and real ChatGPT Plus proof of concept. Then React foundation and SQLite migrations.
-2. Persistent lesson conversations, streaming, cancellation, offline reading, recoverable errors.
-3. PDF/PPTX/image import, bounded extraction, source references, AI plan validation, editable plan preview.
-4. Focused tutor view, per-lesson chat, scoped quick actions, path sidebar, resume last lesson.
-5. Transactional one-click completion, next unfinished lesson, deterministic progress, undo, revisit/incomplete actions.
-6. Optional exercises/attempts, feedback, math rendering, code highlighting, quizzes.
-7. Webpages/YouTube captions, accessibility and visual polish, comprehensive tests, Windows installer.
+## Integration gate — passed
+On 2026-10-30 the user completed OAuth. Authenticated model discovery and a real streamed explanation succeeded. Initial failure was an overly strict Content-Type check: the live response was HTTP 200 with SSE framing but no Content-Type. Missing headers now proceed through strict stream/completion validation; explicit non-SSE types and interrupted streams fail. Evidence: app user-data `poc-verification.json`.
 
-## Completed
-- Inspected empty workspace; no existing project or roadmap.
-- Read official quickstart, registration, sessions, inference, token reference, limitations and recovery documentation.
-- Confirmed public OpenID discovery endpoint is reachable.
-- Resolved local npm certificate-chain issue by using Node's Windows system CA trust (TLS verification remains enabled).
-- Implemented and compiled TypeScript/Electron connection POC: PKCE/state/nonce, loopback callback, JWKS signature/issuer/audience/expiry/nonce checks, encrypted credentials, serialized refresh, model catalog, stream test, and session revocation.
-- Eight automated protocol tests pass (`npm test`): new/returning registration, callback rejection, Responses contract, fragmented UTF-8/CRLF events, interrupted/incomplete/empty streams and late usage-limit failure.
-- Installed Electron runtime and launched the desktop POC. Launcher removes inherited ELECTRON_RUN_AS_NODE only from the application child process.
-- Verified visible native window titled `StudyFlow · Connection test` and successful encrypted host-state creation. Fixed ESM startup ordering and the launcher hiding the interactive application window.
+## Development phases
+1. **Implemented:** Electron/React foundation, SQLite migration, official OAuth proof, secure token storage/refresh/disconnect code.
+2. **Implemented:** per-lesson persistent conversations, streaming, cancellation, interrupted-response handling and offline history.
+3. **Core implemented:** PDF selectable text, PPTX actual slide order/embedded images, image/text import; bounded generation, validated plans and editable preview. Full slide rendering remains open.
+4. **Implemented:** focused tutor, scoped quick actions, separate lesson chats, learning-path sidebar, persisted active lesson.
+5. **Implemented and service-tested:** complete/next, live deterministic progress, duplicate protection, undo, revisit, incomplete and review states.
+6. **Initial implementation:** optional exercises, saved attempts/feedback, math rendering, highlighted code, understanding questions. Deterministic verification and richer quiz UI remain open.
+7. **Initial implementation:** readable webpages, attempted public captions, transcript fallback, T3-style UI, source reader and Windows NSIS installer. Native UI acceptance and packaged regression checks remain open.
+
+## Completed validation
+- TypeScript backend/UI checks and production Vite build.
+- 18 tests: OAuth state/registration handling; supported Responses contract; fragmented UTF-8/SSE; late usage errors; missing headers; invalid plans; ordering; transactional completion/idempotency/undo; revisits; persistent conversations; active lesson restore; invalid files; presentation relationship ordering; private-address rejection.
+- Live OOP PPTX service acceptance: six AI-generated lessons → Lesson 1 → follow-up → example → completion → fresh Lesson 2 → revisit Lesson 1 → database close/reopen/resume. History and completion states asserted. Evidence under `%APPDATA%/StudyFlow/acceptance/2026-10-30T15-27-53-544Z/`.
+- Real webpage extraction from Wikipedia returned readable OOP content.
+- Shared-browser inspection of overview/import layout and controls. Native StudyFlow window launch verified on Windows 10.
+- Dependency audit reports zero known vulnerabilities after dependency overrides.
+- Windows NSIS installer built; final rebuild follows latest changes.
 
 ## Current tasks
-- Build SQLite persistence and the React learning workspace with the T3 Code visual direction.
-- Implement import → plan preview → one-lesson tutoring → complete/next → reopen/resume.
+- Finish current installer/relaunch checks and document the usable build accurately.
 
-## Gate / blockers
-- INTEGRATION GATE PASSED: live authenticated model discovery and Responses inference succeeded on 2026-10-30, with lesson text and response.completed. Evidence is stored in the app user-data poc-verification.json without credentials.
-- Fixed live HTTP 200 SSE response with missing Content-Type; 11 protocol tests pass, including regression tests rejecting non-SSE and partial streams. Live refresh/revocation are not yet verified.
-- If access is technically blocked, capture a credential-free diagnostic and ask the user how to proceed. Never substitute billed API usage.
-
-## Required validation after the gate
-- Lesson plan generation/order and invalid plans.
-- Deterministic progress, idempotent completion, next unfinished selection, undo.
-- Revisit completed lessons without changing state, persistence and active-lesson restoration.
-- Conversations never cross lesson boundaries; interrupted streams and retries remain identifiable.
-- Malformed/oversized imports, empty extraction, unavailable captions.
-- Full user acceptance scenario: import OOP PPTX → preview → Lesson 1 → follow-up → example → complete → Lesson 2 → revisit Lesson 1 → restart/resume.
+## Remaining work and limitations
+- Full native UI click-through of the user's 20-step acceptance scenario. Service-level live acceptance does not replace this check; do not call the entire core acceptance complete yet.
+- PPTX chart/layout fidelity: neither PowerPoint nor LibreOffice is installed here. Current import preserves text order and selected embedded images, and explicitly discloses its limits. Add optional conversion/rendering; screenshots are the current workaround.
+- Scanned PDF OCR/visual page rendering. Current importer rejects textless scans with guidance.
+- Packaging install/uninstall and packaged PDF/image/URL import regression tests.
+- Live refresh/revocation, multiple saved account registrations, signed installer distribution.
+- Conversation context summarization beyond the last 30 complete messages; full history is still retained locally.
+- Deterministic mathematical checking, structured quiz grades and richer exercise reporting. No code execution.
+- More responsive/accessibility checks and localization of lower-level processing/error strings.
 
 ## Next steps
-Run POC checks, launch StudyFlow, complete browser sign-in and inference. Update this file with actual evidence. Proceed to the core workflow only after success.
+Use the native app with a real university presentation, verify native navigation/resume and visual-material handling, then complete the remaining rendering and regression work. Keep this file as the only roadmap.
 
-## Official references (checked 2026-10-30)
+## Official sources checked
 - https://developers.openai.com/siwc/quickstart
 - https://developers.openai.com/siwc/token-sharing-open-source
 - https://developers.openai.com/siwc/token-sharing-open-source/sign-in
