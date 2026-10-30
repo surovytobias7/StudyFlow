@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'none'; img-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>StudyFlow · Connection test</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <header><span class="brand">StudyFlow<span class="dot">●</span></span><span class="badge">PHASE 01 · CONNECTION TEST</span></header>
+    <section>
+      <p class="eyebrow">YOUR PERSONAL LEARNING SPACE</p>
+      <h1>A better way to learn.<br>One lesson at a time.</h1>
+      <p class="intro">First, let’s verify that StudyFlow can use your ChatGPT plan. This small proof of concept tests the real connection before the learning application is built.</p>
+    </section>
+    <article>
+      <div class="step"><span class="number">1</span><div><h2>Connect your ChatGPT account</h2><p>Sign in securely in your browser and explicitly allow eligible ChatGPT plan usage. This uses your shared plan allowance. No API-key billing fallback.</p></div></div>
+      <p id="account">No account connected</p>
+      <div class="actions"><button id="login">Continue with ChatGPT</button><button class="secondary" id="disconnect" disabled>Disconnect</button><button class="secondary" id="cancel" hidden>Cancel</button></div>
+      <div class="divider"></div>
+      <div class="step"><span class="number">2</span><div><h2>Try one tiny lesson</h2><p>Fetch the models available to your account, then stream a short explanation of classes and objects in C#.</p></div></div>
+      <label for="model">Available model</label>
+      <div class="actions"><select id="model" disabled><option>Connect to load models</option></select><button class="secondary" id="models" disabled>Refresh</button><button id="test" disabled>Test connection →</button></div>
+      <pre id="output" aria-live="polite">Your lesson explanation will appear here.</pre>
+      <p id="status" role="status">Not yet verified. A successful sign-in alone does not prove inference works.</p>
+    </article>
+    <footer>Local credential protection · Official OAuth · No cloud database<br>The full learning workflow is not implemented yet.</footer>
+  </main>
+  <script src="renderer.js"></script>
+</body>
+</html>
