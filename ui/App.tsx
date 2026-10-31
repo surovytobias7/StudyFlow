@@ -37,9 +37,18 @@ import {
   PanelRightClose,
   PanelRightOpen,
 } from "lucide-react";
-import type { Snapshot, Plan, Material } from "../src/domain";
+import type {
+  Snapshot,
+  Plan,
+  Material,
+  NormalSnapshot,
+  NormalAttachment,
+} from "../src/domain";
 import "katex/dist/katex.min.css";
 import "./style.css";
+import { ConversationDialog } from "./ConversationDialog";
+import { localizeMessage } from "../src/localization";
+import { attachmentsSchema } from "../src/domain";
 
 type Connection = {
   connected: boolean;
@@ -47,7 +56,12 @@ type Connection = {
   account: string;
   models: { slug: string; display_name: string }[];
 };
-type Event = { kind: string; text: string; lessonId?: string };
+type Event = {
+  kind: string;
+  text: string;
+  lessonId?: string;
+  conversationId?: string;
+};
 declare global {
   interface Window {
     studyflow?: {
@@ -70,6 +84,13 @@ const empty: Snapshot = {
 async function call<T>(action: string, value?: unknown): Promise<T> {
   if (!window.studyflow) {
     if (action === "snapshot") return empty as T;
+    if (action === "normalSnapshot")
+      return {
+        conversations: [],
+        conversation: null,
+        messages: [],
+        settings: empty.settings,
+      } as T;
     if (action === "status")
       return {
         connected: false,
@@ -124,7 +145,7 @@ function SourceDialog({
           <X size={18} />
         </button>
       </div>
-      <p>{material.warning}</p>
+      <p>{localizeMessage(material.warning, sk ? "sk" : "en")}</p>
       <pre>{material.text}</pre>
       {material.images.map((image) => (
         <figure key={image.label}>
@@ -137,15 +158,32 @@ function SourceDialog({
 }
 export default function App() {
   const [data, setData] = useState<Snapshot>(empty);
+  const [normal, setNormal] = useState<NormalSnapshot>({
+    conversations: [],
+    conversation: null,
+    messages: [],
+    settings: empty.settings,
+  });
+  const [normalDraft, setNormalDraft] = useState("");
+  const [normalAttachments, setNormalAttachments] = useState<
+    NormalAttachment[]
+  >([]);
+  const [normalStream, setNormalStream] = useState("");
+  const [responding, setResponding] = useState(false);
+  const [manageChat, setManageChat] = useState<{
+    id: string;
+    title: string;
+    action: "rename" | "delete";
+  } | null>(null);
   const [connection, setConnection] = useState<Connection>({
     connected: false,
     models: [],
     account: "",
     planEnabled: false,
   });
-  const [view, setView] = useState<"home" | "learn" | "new" | "settings">(
-    "home",
-  );
+  const [view, setView] = useState<
+    "home" | "learn" | "new" | "settings" | "normal"
+  >("home");
   const [busy, setBusy] = useState(false);
   const lock = useRef(false);
   const [error, setError] = useState("");
@@ -164,6 +202,8 @@ export default function App() {
   const lesson = data.lessons.find((l) => l.id === activeId);
   const activeRef = useRef(activeId);
   activeRef.current = activeId;
+  const normalRef = useRef<string | undefined>(undefined);
+  normalRef.current = normal.conversation?.id;
   const [plan, setPlan] = useState<Plan | null>(null);
   const [source, setSource] = useState<Material | null>(null);
   const sk = data.settings.language === "sk";
@@ -174,12 +214,19 @@ export default function App() {
 
   useEffect(() => {
     let mounted = true;
-    Promise.all([call<Snapshot>("snapshot"), call<Connection>("status")])
-      .then(([snapshot, status]) => {
+    Promise.all([
+      call<Snapshot>("snapshot"),
+      call<NormalSnapshot>("normalSnapshot"),
+      call<Connection>("status"),
+    ])
+      .then(([snapshot, normalSnapshot, status]) => {
         if (!mounted) return;
         setData(snapshot);
+        setNormal(normalSnapshot);
         setConnection(status);
-        if (snapshot.course) setView("learn");
+        if (snapshot.settings.activeMode === "normal") {
+          setView("normal");
+        } else if (snapshot.course) setView("learn");
         if (status.connected)
           call<Connection>("models")
             .then((value) => {
@@ -191,8 +238,18 @@ export default function App() {
         if (mounted) setError(err.message);
       });
     const off = window.studyflow?.onEvent((event) => {
-      if (event.kind === "delta" && event.lessonId === activeRef.current)
+      if (
+        event.kind === "delta" &&
+        event.lessonId &&
+        event.lessonId === activeRef.current
+      )
         setStream((text) => text + event.text);
+      if (
+        event.kind === "delta" &&
+        event.conversationId &&
+        event.conversationId === normalRef.current
+      )
+        setNormalStream((text) => text + event.text);
       if (event.kind === "status" || event.kind === "processing")
         setNotice(event.text);
     });
@@ -227,7 +284,10 @@ export default function App() {
     const el = scroller.current;
     if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 250)
       el.scrollTop = el.scrollHeight;
-  }, [stream]);
+  }, [stream, normalStream]);
+  useEffect(() => {
+    if (scroller.current) scroller.current.scrollTop = 0;
+  }, [normal.conversation?.id]);
 
   async function run(work: () => Promise<void>) {
     if (lock.current) return;
@@ -267,8 +327,97 @@ export default function App() {
       setStream("");
     }
   }
+  async function switchMode(mode: "normal" | "study") {
+    if (busy) return;
+    await run(async () => {
+      const result = await call<Snapshot | NormalSnapshot>("activeMode", mode);
+      if (mode === "normal") {
+        let next = result as NormalSnapshot;
+        if (!next.conversation)
+          next = await call<NormalSnapshot>("normalCreate", null);
+        setNormal(next);
+        setView("normal");
+      } else {
+        const snapshot = result as Snapshot;
+        setData(snapshot);
+        setView(snapshot.course ? "learn" : "home");
+      }
+    });
+  }
+  function showStudy(target: "home" | "new" | "learn") {
+    void run(async () => {
+      setData(await call<Snapshot>("activeMode", "study"));
+      setView(target);
+    });
+  }
+  async function createNormalConversation() {
+    await run(async () => {
+      setNormal(await call<NormalSnapshot>("normalCreate", null));
+      setNormalDraft("");
+      setNormalAttachments([]);
+      setNormalStream("");
+      setView("normal");
+    });
+  }
+  async function sendNormal() {
+    if (busy || (!normalDraft.trim() && !normalAttachments.length)) return;
+    const current = normal.conversation;
+    await run(async () => {
+      const validation = attachmentsSchema.safeParse(normalAttachments);
+      if (!validation.success)
+        throw new Error(
+          normalAttachments.length > 8
+            ? "Attach at most 8 files per message."
+            : "Attachments are too large to send together. Remove some images or attach a smaller file.",
+        );
+      let target = current;
+      if (!target) {
+        const created = await call<NormalSnapshot>("normalCreate", null);
+        setNormal(created);
+        target = created.conversation;
+      }
+      if (!target) return;
+      setResponding(true);
+      const messageText = normalDraft.trim();
+      normalRef.current = target.id;
+      setNormal((value) => ({
+        ...value,
+        conversation: target!,
+        messages: [
+          ...value.messages,
+          {
+            id: crypto.randomUUID(),
+            conversationId: target!.id,
+            role: "user",
+            content: messageText,
+            status: "complete",
+            createdAt: new Date().toISOString(),
+            attachments: normalAttachments,
+          },
+        ],
+      }));
+      setNormalDraft("");
+      setNormalStream("");
+      const attachments = normalAttachments;
+      setNormalAttachments([]);
+      try {
+        setNormal(
+          await call<NormalSnapshot>("normalChat", {
+            id: target.id,
+            question: messageText,
+            attachments,
+          }),
+        );
+      } finally {
+        setResponding(false);
+        setNormalStream("");
+        setNormal(await call<NormalSnapshot>("normalSnapshot", target.id));
+      }
+    });
+  }
   function navigate(id: string) {
     void run(async () => {
+      await call("activeMode", "study");
       const snapshot = await call<Snapshot>("activate", id);
       setData(snapshot);
       setView("learn");
@@ -277,6 +426,7 @@ export default function App() {
   }
   function openCourse(id: string) {
     void run(async () => {
+      await call("activeMode", "study");
       const snapshot = await call<Snapshot>("snapshot", id);
       setData(snapshot);
       setView("learn");
@@ -342,6 +492,7 @@ export default function App() {
         ...patch,
       };
       setData(await call<Snapshot>("settings", settings));
+      setNormal(await call<NormalSnapshot>("normalSnapshot"));
     });
   }
   const quick = [
@@ -395,6 +546,32 @@ export default function App() {
   ];
   return (
     <div className="app-shell">
+      {manageChat && (
+        <ConversationDialog
+          key={manageChat.id + manageChat.action}
+          {...manageChat}
+          sk={sk}
+          onClose={() => setManageChat(null)}
+          onConfirm={async (title) => {
+            const result = await call<NormalSnapshot>(
+              manageChat.action === "rename" ? "normalRename" : "normalDelete",
+              manageChat.action === "rename"
+                ? { id: manageChat.id, title }
+                : manageChat.id,
+            );
+            if (
+              manageChat.action === "delete" &&
+              manageChat.id === normal.conversation?.id
+            ) {
+              setNormalDraft("");
+              setNormalAttachments([]);
+              setNormalStream("");
+            }
+            setNormal(result);
+            setManageChat(null);
+          }}
+        />
+      )}
       {source && (
         <SourceDialog material={source} close={() => setSource(null)} sk={sk} />
       )}
@@ -404,22 +581,28 @@ export default function App() {
             <GraduationCap size={20} />
           </span>
           <strong>StudyFlow</strong>
-          <span className="local-badge">local</span>
+          <span className="local-badge">{t("local", "lokálne")}</span>
         </div>
         <button
           className="new-button"
           disabled={busy}
-          onClick={() => setView("new")}
+          onClick={() =>
+            view === "normal"
+              ? void createNormalConversation()
+              : showStudy("new")
+          }
         >
           <Plus size={16} />
-          {t("New learning session", "Nové štúdium")}
+          {view === "normal"
+            ? t("New chat", "Nový chat")
+            : t("New learning session", "Nové štúdium")}
           <kbd>+</kbd>
         </button>
         <nav aria-label={t("Main navigation", "Hlavná navigácia")}>
           <button
             className={view === "home" ? "nav active" : "nav"}
             disabled={busy}
-            onClick={() => setView("home")}
+            onClick={() => showStudy("home")}
           >
             <LayoutDashboard size={16} />
             {t("Overview", "Prehľad")}
@@ -427,12 +610,132 @@ export default function App() {
           <button
             className={view === "learn" ? "nav active" : "nav"}
             disabled={busy || !data.course}
-            onClick={() => setView("learn")}
+            onClick={() => showStudy("learn")}
           >
             <MessageSquare size={16} />
             {t("Learning workspace", "Pracovný priestor")}
           </button>
         </nav>
+        <div className="mode-switch">
+          <button
+            className={
+              view === "normal" ? "mode-option selected" : "mode-option"
+            }
+            disabled={busy}
+            onClick={() => void switchMode("normal")}
+          >
+            <MessageSquare size={14} />
+            {t("Normal chat", "Bežný chat")}
+          </button>
+          <button
+            className={
+              view === "learn" || view === "new"
+                ? "mode-option selected"
+                : "mode-option"
+            }
+            disabled={busy}
+            onClick={() => void switchMode("study")}
+          >
+            <GraduationCap size={14} />
+            {t("Study mode", "Študijný režim")}
+          </button>
+        </div>
+        {view === "normal" && (
+          <>
+            <div className="sidebar-heading">
+              {t("Conversations", "Konverzácie")}
+              <button
+                className="icon-button"
+                aria-label={t("New chat", "Nový chat")}
+                onClick={() => void createNormalConversation()}
+              >
+                <Plus size={14} />
+              </button>
+            </div>
+            <div className="course-list chat-list">
+              {normal.conversations.map((conversation) => (
+                <div
+                  className={`chat-nav ${normal.conversation?.id === conversation.id ? "selected" : ""}`}
+                  key={conversation.id}
+                >
+                  <button
+                    className="chat-select"
+                    disabled={busy}
+                    onClick={() =>
+                      void run(async () => {
+                        setNormal(
+                          await call<NormalSnapshot>(
+                            "normalSelect",
+                            conversation.id,
+                          ),
+                        );
+                        setNormalDraft("");
+                        setNormalAttachments([]);
+                        setNormalStream("");
+                      })
+                    }
+                  >
+                    <MessageSquare size={14} />
+                    <span>
+                      {conversation.title === "New conversation" &&
+                      !conversation.messageCount
+                        ? t("New conversation", "Nová konverzácia")
+                        : conversation.title}
+                      <small>
+                        {conversation.preview.slice(0, 60) ||
+                          t("New conversation", "Nová konverzácia")}
+                      </small>
+                    </span>
+                  </button>
+                  <button
+                    className="icon-button chat-menu"
+                    title={t("Rename", "Premenovať")}
+                    aria-label={t(
+                      "Rename conversation",
+                      "Premenovať konverzáciu",
+                    )}
+                    disabled={busy}
+                    onClick={() =>
+                      setManageChat({
+                        id: conversation.id,
+                        title: conversation.title,
+                        action: "rename",
+                      })
+                    }
+                  >
+                    <MoreHorizontal size={15} />
+                  </button>
+                  <button
+                    className="icon-button chat-menu"
+                    title={t("Delete", "Odstrániť")}
+                    aria-label={t(
+                      "Delete conversation",
+                      "Odstrániť konverzáciu",
+                    )}
+                    disabled={busy}
+                    onClick={() =>
+                      setManageChat({
+                        id: conversation.id,
+                        title: conversation.title,
+                        action: "delete",
+                      })
+                    }
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+              {!normal.conversations.length && (
+                <p className="sidebar-empty">
+                  {t(
+                    "Your chats will appear here.",
+                    "Tu sa zobrazia tvoje chaty.",
+                  )}
+                </p>
+              )}
+            </div>
+          </>
+        )}
         <div className="sidebar-heading">
           {t("Your courses", "Tvoje kurzy")}
           <span>{data.courses.length}</span>
@@ -518,13 +821,15 @@ export default function App() {
           <div className="breadcrumb">
             <BookOpen size={15} />
             <span>
-              {view === "learn"
-                ? data.course?.title
-                : view === "new"
-                  ? t("New learning session", "Nové štúdium")
-                  : view === "settings"
-                    ? t("Settings", "Nastavenia")
-                    : t("Overview", "Prehľad")}
+              {view === "normal"
+                ? t("Normal chat", "Bežný chat")
+                : view === "learn"
+                  ? data.course?.title
+                  : view === "new"
+                    ? t("New learning session", "Nové štúdium")
+                    : view === "settings"
+                      ? t("Settings", "Nastavenia")
+                      : t("Overview", "Prehľad")}
             </span>
             {lesson && view === "learn" && (
               <>
@@ -573,7 +878,7 @@ export default function App() {
         </header>
         {error && (
           <div className="error-banner" role="alert">
-            <span>{error}</span>
+            <span>{localizeMessage(error, data.settings.language)}</span>
             <button
               className="icon-button"
               aria-label={t("Dismiss error", "Zavrieť chybu")}
@@ -586,10 +891,290 @@ export default function App() {
         {busy && notice && (
           <div className="processing" role="status">
             <LoaderCircle size={14} className="spin" />
-            {notice}
+            {localizeMessage(notice, data.settings.language)}
           </div>
         )}
         <main className="main-content">
+          {view === "normal" && (
+            <section className="normal-chat-page">
+              <header className="normal-chat-heading">
+                <div>
+                  <span className="eyebrow">
+                    <Sparkles size={14} />
+                    {t("GENERAL ASSISTANT", "VŠEOBECNÝ ASISTENT")}
+                  </span>
+                  <h1>
+                    {!normal.conversation ||
+                    (normal.conversation.title === "New conversation" &&
+                      !normal.conversation.messageCount)
+                      ? t("New conversation", "Nová konverzácia")
+                      : normal.conversation.title}
+                  </h1>
+                  <p>
+                    {t(
+                      "Ask anything. Files are optional; this chat stays separate from your courses.",
+                      "Opýtaj sa na čokoľvek. Súbory sú voliteľné a tento chat nemení tvoje kurzy.",
+                    )}
+                  </p>
+                </div>
+                <label className="language-inline">
+                  {t("AI replies", "Jazyk odpovedí AI")}
+                  <select
+                    value={normal.conversation?.aiLanguage ?? "default"}
+                    disabled={!normal.conversation || busy}
+                    onChange={(e) =>
+                      void run(async () =>
+                        setNormal(
+                          await call<NormalSnapshot>("normalLanguage", {
+                            id: normal.conversation!.id,
+                            language:
+                              e.target.value === "default"
+                                ? null
+                                : e.target.value,
+                          }),
+                        ),
+                      )
+                    }
+                  >
+                    <option value="default">
+                      {t("Default", "Predvolený")} (
+                      {data.settings.tutorLanguage === "sk"
+                        ? "Slovenčina"
+                        : "English"}
+                      )
+                    </option>
+                    <option value="sk">Slovenčina</option>
+                    <option value="en">English</option>
+                  </select>
+                </label>
+              </header>
+              <div className="normal-messages" ref={scroller}>
+                {!normal.messages.length && !busy && (
+                  <div className="normal-empty">
+                    <span>
+                      <Sparkles size={24} />
+                    </span>
+                    <h2>
+                      {t(
+                        "What would you like to understand?",
+                        "Čomu by si chcel porozumieť?",
+                      )}
+                    </h2>
+                    <p>
+                      {t(
+                        "Start with a question, or attach notes, a PDF, presentation, or image.",
+                        "Začni otázkou alebo prilož poznámky, PDF, prezentáciu či obrázok.",
+                      )}
+                    </p>
+                  </div>
+                )}
+                {normal.messages.map((message) => (
+                  <article
+                    className={`message ${message.role}`}
+                    key={message.id}
+                  >
+                    <div className="message-author">
+                      {message.role === "assistant" ? (
+                        <>
+                          <span className="tutor-icon">
+                            <Sparkles size={14} />
+                          </span>
+                          StudyFlow{" "}
+                          <span className="muted">
+                            {t("Assistant", "Asistent")}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="user-icon">{t("Y", "T")}</span>
+                          {t("You", "Ty")}
+                        </>
+                      )}
+                    </div>
+                    {message.attachments.map((attachment, i) => (
+                      <button
+                        className="attachment-chip"
+                        key={`${message.id}-${i}`}
+                        onClick={() =>
+                          setSource({
+                            ...attachment,
+                            id: `${message.id}-${i}`,
+                            warning: attachment.warning ?? "",
+                          })
+                        }
+                      >
+                        <FileText size={14} />
+                        {attachment.name}
+                      </button>
+                    ))}
+                    {message.content && (
+                      <div className="prose">
+                        <RichText>{message.content}</RichText>
+                      </div>
+                    )}
+                    {message.status === "interrupted" && (
+                      <small className="warning">
+                        {t(
+                          "Response interrupted. Ask again to continue.",
+                          "Odpoveď bola prerušená. Skús sa opýtať znova.",
+                        )}
+                      </small>
+                    )}
+                  </article>
+                ))}
+                {responding && view === "normal" && (
+                  <article className="message assistant">
+                    <div className="message-author">
+                      <span className="tutor-icon">
+                        <Sparkles size={14} />
+                      </span>
+                      StudyFlow{" "}
+                      <LoaderCircle className="spin muted" size={13} />
+                    </div>
+                    {normalStream ? (
+                      <div className="prose">
+                        <RichText>{normalStream}</RichText>
+                      </div>
+                    ) : (
+                      <p className="muted">{t("Thinking…", "Premýšľam…")}</p>
+                    )}
+                  </article>
+                )}
+              </div>
+              <form
+                className="normal-composer"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void sendNormal();
+                }}
+              >
+                {normalAttachments.length > 0 && (
+                  <div className="attachment-list">
+                    {normalAttachments.map((file, i) => (
+                      <span
+                        className="attachment-chip"
+                        key={`${file.name}-${i}`}
+                      >
+                        <FileText size={14} />
+                        {file.name}
+                        <button
+                          type="button"
+                          className="icon-button"
+                          aria-label={t(
+                            "Remove attachment",
+                            "Odstrániť prílohu",
+                          )}
+                          onClick={() =>
+                            setNormalAttachments((all) =>
+                              all.filter((_, index) => index !== i),
+                            )
+                          }
+                        >
+                          <X size={12} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {normalAttachments.some((file) => file.warning) && (
+                  <details className="attachment-warnings">
+                    <summary>
+                      {t(
+                        "Attachment import details",
+                        "Podrobnosti importu príloh",
+                      )}
+                    </summary>
+                    {normalAttachments
+                      .filter((file) => file.warning)
+                      .map((file, index) => (
+                        <p key={index}>
+                          <strong>{file.name}: </strong>
+                          {localizeMessage(
+                            file.warning!,
+                            data.settings.language,
+                          )}
+                        </p>
+                      ))}
+                  </details>
+                )}
+                <textarea
+                  aria-label={t("Message", "Správa")}
+                  placeholder={t("Ask anything…", "Opýtaj sa na čokoľvek…")}
+                  rows={3}
+                  maxLength={12000}
+                  value={normalDraft}
+                  onChange={(e) => setNormalDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      void sendNormal();
+                    }
+                  }}
+                />
+                <div className="normal-composer-bottom">
+                  <div className="row">
+                    <button
+                      type="button"
+                      className="text-button"
+                      disabled={busy}
+                      onClick={() =>
+                        void run(async () => {
+                          const added =
+                            await call<NormalAttachment[]>("normalAttach");
+                          const next = [...normalAttachments, ...added];
+                          if (next.length > 8)
+                            throw new Error(
+                              "Attach at most 8 files per message.",
+                            );
+                          if (!attachmentsSchema.safeParse(next).success)
+                            throw new Error(
+                              "Attachments are too large to send together. Remove some images or attach a smaller file.",
+                            );
+                          setNormalAttachments(next);
+                        })
+                      }
+                    >
+                      <Plus size={15} />
+                      {t("Attach", "Priložiť")}
+                    </button>
+                    <span className="muted">
+                      <Sparkles size={12} />{" "}
+                      {connection.models.find(
+                        (m) => m.slug === data.settings.model,
+                      )?.display_name ?? t("ChatGPT", "ChatGPT")}
+                    </span>
+                  </div>
+                  {busy ? (
+                    <button
+                      type="button"
+                      className="send"
+                      aria-label={t("Stop response", "Zastaviť odpoveď")}
+                      onClick={() => void call("cancel")}
+                    >
+                      <Square size={13} />
+                    </button>
+                  ) : (
+                    <button
+                      type="submit"
+                      className="send"
+                      disabled={
+                        !normalDraft.trim() && !normalAttachments.length
+                      }
+                      aria-label={t("Send message", "Odoslať správu")}
+                    >
+                      <ArrowUp size={16} />
+                    </button>
+                  )}
+                </div>
+              </form>
+              <p className="normal-footnote">
+                {t(
+                  "Conversations save automatically on this computer.",
+                  "Konverzácie sa automaticky ukladajú v tomto počítači.",
+                )}
+              </p>
+            </section>
+          )}
           {view === "home" && (
             <div className="page overview-page">
               <div className="page-heading">
@@ -610,7 +1195,7 @@ export default function App() {
                 <button
                   className="primary"
                   disabled={busy}
-                  onClick={() => setView("new")}
+                  onClick={() => showStudy("new")}
                 >
                   <Plus size={16} />
                   {t("New session", "Nové štúdium")}
@@ -686,7 +1271,7 @@ export default function App() {
                       "Pridaj prezentáciu, poznámky alebo učebnicu. Tvoj tútor ich rozdelí na malé lekcie s priestorom na každú otázku.",
                     )}
                   </p>
-                  <button className="primary" onClick={() => setView("new")}>
+                  <button className="primary" onClick={() => showStudy("new")}>
                     <Plus size={16} />
                     {t("Create your first course", "Vytvoriť prvý kurz")}
                   </button>
@@ -873,7 +1458,7 @@ export default function App() {
                       })
                     }
                   >
-                    {t("Continue with ChatGPT", "Continue with ChatGPT")}
+                    {t("Continue with ChatGPT", "Pokračovať cez ChatGPT")}
                   </button>
                   {connection.connected && (
                     <button
@@ -903,7 +1488,11 @@ export default function App() {
                     "Využíva zdieľaný limit plánu. Žiadne samostatne účtované API. Limity spravuješ v ChatGPT Nastavenia → Využitie.",
                   )}
                 </p>
-                {notice && !busy && <p role="status">{notice}</p>}
+                {notice && !busy && (
+                  <p role="status">
+                    {localizeMessage(notice, data.settings.language)}
+                  </p>
+                )}
                 <label>
                   {t("Tutor model", "Model tútora")}
                   <select
@@ -954,7 +1543,10 @@ export default function App() {
                   </select>
                 </label>
                 <label>
-                  {t("Tutor explanation language", "Jazyk vysvetľovania")}
+                  {t(
+                    "Default AI response language (both modes)",
+                    "Predvolený jazyk odpovedí AI (oba režimy)",
+                  )}
                   <select
                     disabled={busy}
                     value={data.settings.tutorLanguage}
@@ -994,6 +1586,36 @@ export default function App() {
           {view === "learn" && data.course && (
             <div className="learning-layout">
               <div className="lesson-panel">
+                <label className="lesson-language">
+                  {t("AI response language", "Jazyk odpovedí AI")}
+                  <select
+                    value={data.course?.aiLanguage ?? "default"}
+                    disabled={busy}
+                    onChange={(e) =>
+                      void run(async () =>
+                        setData(
+                          await call<Snapshot>("courseLanguage", {
+                            courseId: data.course!.id,
+                            language:
+                              e.target.value === "default"
+                                ? null
+                                : e.target.value,
+                          }),
+                        ),
+                      )
+                    }
+                  >
+                    <option value="default">
+                      {t("Use default", "Použiť predvolený")} (
+                      {data.settings.tutorLanguage === "sk"
+                        ? "Slovenčina"
+                        : "English"}
+                      )
+                    </option>
+                    <option value="sk">Slovenčina</option>
+                    <option value="en">English</option>
+                  </select>
+                </label>
                 {plan ? (
                   <div className="page plan-page">
                     <span className="section-icon">
@@ -1148,6 +1770,7 @@ export default function App() {
                         </span>
                       </div>
                       <h1>{lesson.title}</h1>
+
                       <div className="lesson-subtitle">
                         <span>
                           {lesson.references.join(" · ") ||
@@ -1545,7 +2168,12 @@ export default function App() {
                             <summary>
                               {t("Import details", "Podrobnosti importu")}
                             </summary>
-                            <p>{source.warning}</p>
+                            <p>
+                              {localizeMessage(
+                                source.warning,
+                                data.settings.language,
+                              )}
+                            </p>
                           </details>
                         )}
                       </div>

@@ -13,6 +13,7 @@
     "build": "tsc && tsc -p ui/tsconfig.json && vite build",
     "start": "npm run build && node scripts/start.cjs",
     "test": "npm run build && node --test dist/*.test.js",
+    "test:ui": "npm run build && node scripts/test-ui.cjs",
     "dev:ui": "vite --host 127.0.0.1",
     "package:win": "npm run build && electron-builder --win nsis"
   },

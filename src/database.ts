@@ -5,6 +5,10 @@ import type {
   Lesson,
   Material,
   Message,
+  NormalAttachment,
+  NormalConversation,
+  NormalMessage,
+  NormalSnapshot,
   Plan,
   Snapshot,
 } from "./domain.js";
@@ -19,7 +23,7 @@ export class Store {
     const version = (
       this.db.prepare("PRAGMA user_version").get() as { user_version: number }
     ).user_version;
-    if (version > 1)
+    if (version > 2)
       throw new Error("This database requires a newer version of StudyFlow.");
     if (version === 0)
       this.db.exec(`BEGIN;
@@ -37,6 +41,17 @@ export class Store {
       CREATE INDEX message_conversation ON Messages(conversationId,createdAt);
       INSERT INTO Settings VALUES('language','en'),('tutorLanguage','sk'),('theme','dark'),('model','');
       PRAGMA user_version=1; COMMIT;`);
+    const current = (
+      this.db.prepare("PRAGMA user_version").get() as { user_version: number }
+    ).user_version;
+    if (current === 1)
+      this.db.exec(`BEGIN;
+      ALTER TABLE Courses ADD COLUMN aiLanguage TEXT CHECK(aiLanguage IS NULL OR aiLanguage IN ('en','sk'));
+      CREATE TABLE NormalConversations(id TEXT PRIMARY KEY,title TEXT NOT NULL,aiLanguage TEXT CHECK(aiLanguage IS NULL OR aiLanguage IN ('en','sk')),createdAt TEXT NOT NULL,updatedAt TEXT NOT NULL);
+      CREATE TABLE NormalMessages(id TEXT PRIMARY KEY,conversationId TEXT NOT NULL REFERENCES NormalConversations(id) ON DELETE CASCADE,role TEXT NOT NULL CHECK(role IN ('user','assistant')),content TEXT NOT NULL,attachments TEXT NOT NULL DEFAULT '[]',status TEXT NOT NULL CHECK(status IN ('complete','interrupted')),createdAt TEXT NOT NULL);
+      CREATE INDEX normal_message_conversation ON NormalMessages(conversationId,createdAt);
+      INSERT INTO Settings(key,value) VALUES('activeMode','study');
+      PRAGMA user_version=2; COMMIT;`);
   }
   close() {
     this.db.close();
@@ -135,7 +150,130 @@ export class Store {
           }))
         : [],
       settings,
+      normalConversations: this.normalConversations(),
     };
+  }
+  private normalConversations(): NormalConversation[] {
+    return this.db
+      .prepare(
+        `SELECT c.*,coalesce((SELECT content FROM NormalMessages m WHERE m.conversationId=c.id ORDER BY m.rowid LIMIT 1),'') preview,(SELECT count(*) FROM NormalMessages m WHERE m.conversationId=c.id) messageCount FROM NormalConversations c ORDER BY c.updatedAt DESC`,
+      )
+      .all() as unknown as NormalConversation[];
+  }
+  normalSnapshot(conversationId?: string): NormalSnapshot {
+    const conversations = this.normalConversations();
+    const id = conversationId ?? this.settings().activeChat;
+    const conversation = conversations.find((item) => item.id === id) ?? null;
+    return {
+      conversations,
+      conversation,
+      messages: conversation ? this.normalMessages(conversation.id) : [],
+      settings: this.settings(),
+    };
+  }
+  normalMessages(conversationId: string): NormalMessage[] {
+    return (
+      this.db
+        .prepare(
+          "SELECT * FROM NormalMessages WHERE conversationId=? ORDER BY rowid",
+        )
+        .all(conversationId) as unknown as (Omit<
+        NormalMessage,
+        "attachments"
+      > & { attachments: string })[]
+    ).map((message) => ({
+      ...message,
+      attachments: JSON.parse(message.attachments),
+    }));
+  }
+  createNormalConversation(aiLanguage: "en" | "sk" | null) {
+    const id = randomUUID(),
+      now = new Date().toISOString();
+    this.db
+      .prepare("INSERT INTO NormalConversations VALUES(?,?,?,?,?)")
+      .run(id, "New conversation", aiLanguage, now, now);
+    this.setting("activeChat", id);
+    this.setting("activeMode", "normal");
+    return this.normalSnapshot(id);
+  }
+  selectNormalConversation(id: string) {
+    if (
+      !this.db.prepare("SELECT id FROM NormalConversations WHERE id=?").get(id)
+    )
+      throw new Error("Conversation not found.");
+    this.setting("activeChat", id);
+    this.setting("activeMode", "normal");
+    return this.normalSnapshot(id);
+  }
+  renameNormalConversation(id: string, title: string) {
+    const result = this.db
+      .prepare("UPDATE NormalConversations SET title=?,updatedAt=? WHERE id=?")
+      .run(title.trim(), new Date().toISOString(), id);
+    if (!result.changes) throw new Error("Conversation not found.");
+    return this.normalSnapshot();
+  }
+  deleteNormalConversation(id: string) {
+    this.transaction(() => {
+      this.db.prepare("DELETE FROM NormalConversations WHERE id=?").run(id);
+      if (this.settings().activeChat === id) {
+        const next = this.normalConversations()[0];
+        this.setting("activeChat", next?.id ?? "");
+      }
+    });
+    return this.normalSnapshot();
+  }
+  setNormalLanguage(id: string, language: "en" | "sk" | null) {
+    const result = this.db
+      .prepare(
+        "UPDATE NormalConversations SET aiLanguage=?,updatedAt=? WHERE id=?",
+      )
+      .run(language, new Date().toISOString(), id);
+    if (!result.changes) throw new Error("Conversation not found.");
+    return this.normalSnapshot(id);
+  }
+  addNormalMessage(
+    id: string,
+    role: "user" | "assistant",
+    content: string,
+    attachments: NormalAttachment[] = [],
+    status: "complete" | "interrupted" = "complete",
+  ) {
+    if (
+      !this.db.prepare("SELECT id FROM NormalConversations WHERE id=?").get(id)
+    )
+      throw new Error("Conversation not found.");
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        "INSERT INTO NormalMessages(id,conversationId,role,content,attachments,status,createdAt) VALUES(?,?,?,?,?,?,?)",
+      )
+      .run(
+        randomUUID(),
+        id,
+        role,
+        content,
+        JSON.stringify(attachments),
+        status,
+        now,
+      );
+    this.db
+      .prepare(
+        "UPDATE NormalConversations SET updatedAt=?,title=CASE WHEN title='New conversation' AND ?='user' AND ?!='' THEN substr(?,1,72) ELSE title END WHERE id=?",
+      )
+      .run(now, role, content, content, id);
+  }
+  setCourseLanguage(courseId: string, language: "en" | "sk" | null) {
+    this.db
+      .prepare("UPDATE Courses SET aiLanguage=? WHERE id=?")
+      .run(language, courseId);
+    return this.snapshot(courseId);
+  }
+  courseLanguage(courseId: string): "en" | "sk" | null {
+    const course = this.db
+      .prepare("SELECT aiLanguage FROM Courses WHERE id=?")
+      .get(courseId) as { aiLanguage: "en" | "sk" | null } | undefined;
+    if (!course) throw new Error("Course not found.");
+    return course.aiLanguage;
   }
   create(material: Material, plan: Plan) {
     return this.transaction(() => {

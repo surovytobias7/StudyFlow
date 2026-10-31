@@ -18,6 +18,10 @@ If your Windows trust store contains an organizational CA and npm reports a cert
 
 ## Use
 
+Use **Normal chat → New chat** to ask any question immediately. Files and images are optional. Each chat is saved automatically; reopen, rename or delete it in the sidebar. Normal Chat never changes course progress. **Study mode** opens the structured lesson workflow below. Both modes use the same ChatGPT connection.
+
+Settings contains separate **Interface language** and **Default AI response language (both modes)** choices. The AI-language selector in a chat or course overrides the default for that conversation/session. Changing it affects future replies and preserves history and progress, regardless of the source document's language.
+
 1. Open **Settings → Continue with ChatGPT** and authorize eligible plan usage. Existing credentials from the connection test are retained.
 2. Choose a model and your explanation language. Interface language and tutor language are independent.
 3. Choose **New learning session** and import a file, URL, or pasted notes/transcript.
@@ -39,10 +43,11 @@ The [official ChatGPT local/open-source OAuth flow](https://developers.openai.co
 
 ```powershell
 npm test
+npm run test:ui
 npm run package:win
 ```
 
-18 automated tests cover callback rejection, streaming, malformed responses, plan validation, completion/idempotency, undo, revisits, SQLite reopen/resume, file errors, presentation ordering and URL address restrictions.
+24 automated tests cover callback rejection, streaming, malformed responses, plan validation, completion/idempotency, undo, revisits, real v1-to-v2 SQLite migration, independent normal conversations, response-language defaults/overrides, interrupted responses, file errors, presentation ordering, localization and URL address restrictions. `test:ui` drives the actual Electron renderer and preload against an isolated SQLite database and simulated AI; it never reads credentials or uses plan allowance. It checks chat CRUD, optional attachments, Markdown/code/math, both languages, mode switching, lesson completion/revisit and restoration. Screenshots are written to `artifacts/`.
 
 Live verification on 2026-10-30 passed OAuth/model discovery/inference and a separate acceptance database using `fixtures/oop-acceptance.pptx`: generated six lessons, taught Lesson 1, answered a follow-up and example, completed Lesson 1, taught Lesson 2, preserved earlier conversations, and restored state after database reopen. Credential-free evidence is in `%APPDATA%/StudyFlow/acceptance/`. This is a service-layer acceptance run; a complete native UI click-through remains to be validated.
 
@@ -51,7 +56,10 @@ To repeat the live acceptance run (uses your ChatGPT allowance), close the app a
 ```powershell
 npm run build
 node scripts/start.cjs --acceptance
+node scripts/start.cjs --acceptance-normal
 ```
+
+Live Normal Chat verification on 2026-10-31 passed three streamed requests: no-file Slovak explanation, an English follow-up with saved history, and an English attachment summarized in Slovak. It created no courses or progress. Evidence: `%APPDATA%/StudyFlow/acceptance/normal-2026-10-31T18-03-40-770Z/result.json`.
 
 ## Current limitations
 

@@ -5,9 +5,15 @@ import { join } from "node:path";
 import { Store } from "./database.js";
 import { Learning } from "./learning.js";
 import { importMaterial } from "./materials.js";
-import { planSchema, settingsSchema, uuid } from "./domain.js";
+import {
+  attachmentsSchema,
+  languageOverride,
+  planSchema,
+  settingsSchema,
+  uuid,
+} from "./domain.js";
 import { z } from "zod";
-import { acceptance } from "./acceptance.js";
+import { acceptance, normalAcceptance } from "./acceptance.js";
 import { importUrl } from "./web-material.js";
 
 app.setName("StudyFlow");
@@ -30,15 +36,20 @@ else {
     } catch (error) {
       initError = (error as Error).message;
     }
-    if (process.argv.includes("--acceptance")) {
+    if (
+      process.argv.includes("--acceptance") ||
+      process.argv.includes("--acceptance-normal")
+    ) {
       try {
         if (initError) throw new Error(initError);
-        await acceptance(connection);
+        await (process.argv.includes("--acceptance-normal")
+          ? normalAcceptance(connection)
+          : acceptance(connection));
       } catch (error) {
         console.error((error as Error).message);
         process.exitCode = 1;
       } finally {
-        app.quit();
+        app.exit(Number(process.exitCode ?? 0));
       }
       return;
     }
@@ -111,6 +122,137 @@ else {
                   store.setting(key, setting);
               });
               result = store.snapshot();
+              break;
+            }
+            case "activeMode": {
+              const mode = z.enum(["normal", "study"]).parse(value);
+              store.setting("activeMode", mode);
+              result =
+                mode === "normal" ? store.normalSnapshot() : store.snapshot();
+              break;
+            }
+            case "normalSnapshot":
+              result = store.normalSnapshot(
+                typeof value === "string" ? uuid.parse(value) : undefined,
+              );
+              break;
+            case "normalCreate":
+              learning.assertIdle();
+              result = store.createNormalConversation(
+                value == null ? null : languageOverride.parse(value),
+              );
+              break;
+            case "normalSelect":
+              learning.assertIdle();
+              result = store.selectNormalConversation(uuid.parse(value));
+              break;
+            case "normalRename": {
+              const input = z
+                .object({ id: uuid, title: z.string().trim().min(1).max(180) })
+                .parse(value);
+              result = store.renameNormalConversation(input.id, input.title);
+              break;
+            }
+            case "normalDelete":
+              learning.assertIdle();
+              result = store.deleteNormalConversation(uuid.parse(value));
+              break;
+            case "normalLanguage": {
+              learning.assertIdle();
+              const input = z
+                .object({ id: uuid, language: languageOverride })
+                .parse(value);
+              result = store.setNormalLanguage(input.id, input.language);
+              break;
+            }
+            case "normalChat": {
+              const input = z
+                .object({
+                  id: uuid,
+                  question: z.string().max(12000),
+                  attachments: attachmentsSchema,
+                })
+                .parse(value);
+              result = await learning.normalChat(
+                input.id,
+                input.question,
+                input.attachments,
+              );
+              break;
+            }
+            case "normalAttach": {
+              const selection = await dialog.showOpenDialog(window!, {
+                properties: ["openFile", "multiSelections"],
+                filters: [
+                  {
+                    name: "Chat attachments",
+                    extensions: [
+                      "pdf",
+                      "pptx",
+                      "png",
+                      "jpg",
+                      "jpeg",
+                      "webp",
+                      "txt",
+                      "md",
+                    ],
+                  },
+                ],
+              });
+              if (selection.canceled) {
+                result = [];
+                break;
+              }
+              const attachments = [];
+              if (selection.filePaths.length > 8)
+                throw new Error("Attach at most 8 files per message.");
+              let totalImages = 0;
+              for (const path of selection.filePaths.slice(0, 8)) {
+                const material = await importMaterial(
+                  path,
+                  join(app.getPath("userData"), "materials"),
+                );
+                const images = material.images.slice(
+                  0,
+                  Math.max(0, 8 - totalImages),
+                );
+                totalImages += images.length;
+                attachments.push({
+                  name: material.name,
+                  kind: material.kind,
+                  text: material.text.slice(0, 100_000),
+                  images,
+                  warning: [
+                    material.warning,
+                    material.text.length > 30_000 ||
+                    images.length < material.images.length
+                      ? "Only part of this attachment fits in the chat context. Use Study Mode for the full document."
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" "),
+                });
+              }
+              if (
+                attachments.reduce(
+                  (sum, item) =>
+                    sum +
+                    item.images.reduce((n, image) => n + image.url.length, 0),
+                  0,
+                ) > 24_000_000
+              )
+                throw new Error(
+                  "Attachments are too large to send together. Remove some images or attach a smaller file.",
+                );
+              result = attachments;
+              break;
+            }
+            case "courseLanguage": {
+              learning.assertIdle();
+              const input = z
+                .object({ courseId: uuid, language: languageOverride })
+                .parse(value);
+              result = store.setCourseLanguage(input.courseId, input.language);
               break;
             }
             case "source":

@@ -8,6 +8,79 @@ import { Learning } from "./learning.js";
 import { importMaterial } from "./materials.js";
 import { Connection } from "./connection.js";
 
+export async function normalAcceptance(connection: Connection) {
+  const directory = join(
+    app.getPath("userData"),
+    "acceptance",
+    `normal-${new Date().toISOString().replace(/[:.]/g, "-")}`,
+  );
+  await mkdir(directory, { recursive: true });
+  const store = new Store(join(directory, "acceptance.sqlite"));
+  try {
+    const status = await connection.refreshModels();
+    assert.ok(status.models[0]);
+    store.setting("model", status.models[0].slug);
+    store.setting("tutorLanguage", "sk");
+    const learning = new Learning(store, connection, () => {});
+    const id = store.createNormalConversation(null).conversation!.id;
+    await learning.normalChat(
+      id,
+      "Explain a class and an object in two short sentences.",
+      [],
+    );
+    assert.equal(store.courses().length, 0);
+    console.info("PASS: real Normal Chat without a course or file");
+    store.setNormalLanguage(id, "en");
+    await learning.normalChat(
+      id,
+      "Give one short example referring to your previous explanation.",
+      [],
+    );
+    assert.equal(store.normalMessages(id).length, 4);
+    console.info(
+      "PASS: real follow-up with explicit history and English override",
+    );
+    store.setNormalLanguage(id, null);
+    await learning.normalChat(
+      id,
+      "Summarize this attachment in one sentence.",
+      [
+        {
+          name: "English OOP note.txt",
+          kind: "txt",
+          text: "Encapsulation keeps an object's internal state private and exposes controlled operations through public methods.",
+          images: [],
+        },
+      ],
+    );
+    const messages = store.normalMessages(id);
+    assert.equal(messages.length, 6);
+    assert.ok(messages.every((message) => message.status === "complete"));
+    assert.equal(store.courses().length, 0);
+    await writeFile(
+      join(directory, "result.json"),
+      JSON.stringify(
+        {
+          completedAt: new Date().toISOString(),
+          model: status.models[0].slug,
+          responseLanguages: ["sk", "en", "sk"],
+          responses: messages
+            .filter((message) => message.role === "assistant")
+            .map((message) => message.content),
+        },
+        null,
+        2,
+      ),
+    );
+    console.info(
+      "PASS: optional English attachment with Slovak default; no courses or progress created",
+    );
+    console.info(`Acceptance evidence: ${directory}`);
+  } finally {
+    store.close();
+  }
+}
+
 export async function acceptance(connection: Connection) {
   const directory = join(
     app.getPath("userData"),
