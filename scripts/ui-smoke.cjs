@@ -61,6 +61,43 @@ async function send(text, expectedCount) {
 app
   .whenReady()
   .then(async () => {
+    const { Connection } = await load("connection.js");
+    const startupConnection = new Connection(() => {});
+    startupConnection.state = { hostId: "isolated-test" };
+    let releaseModels;
+    const catalog = new Promise((resolve) => {
+      releaseModels = resolve;
+    });
+    let discoveries = 0;
+    startupConnection.loadModels = async () => {
+      discoveries++;
+      await catalog;
+      startupConnection.models = [
+        { slug: "test-model", display_name: "Test model" },
+      ];
+    };
+    startupConnection.accessToken = async () => "test-only-token";
+    startupConnection.request = async () =>
+      new Response(
+        'data: {"type":"response.output_text.delta","delta":"Ready"}\n\ndata: {"type":"response.completed"}\n\n',
+        { headers: { "Content-Type": "text/event-stream" } },
+      );
+    const modelOne = startupConnection.refreshModels();
+    const modelTwo = startupConnection.refreshModels();
+    const firstResponse = startupConnection.generate(
+      "test-model",
+      "Test",
+      [],
+      () => {},
+    );
+    const startup = Promise.all([modelOne, modelTwo, firstResponse]);
+    releaseModels();
+    const startupResults = await startup;
+    assert.equal(discoveries, 1);
+    assert.equal(startupResults[2], "Ready");
+    console.info(
+      "PASS: first AI request safely joins concurrent startup model discovery",
+    );
     const { Store } = await load("database.js");
     const { Learning } = await load("learning.js");
     store = new Store(join(temp, "test.sqlite"));
@@ -164,6 +201,15 @@ app
             break;
           case "complete":
             result = store.complete(value.lessonId, value.operationId);
+            break;
+          case "mark":
+            result = store.mark(value.lessonId, value.status);
+            break;
+          case "completePath":
+            result = store.completePath(value.courseId, value.operationId);
+            break;
+          case "reopenPath":
+            result = store.reopenPath(value.courseId, value.operationId);
             break;
           case "undo":
             result = store.undo(value);
@@ -281,6 +327,20 @@ app
       },
     );
     await textButton("Študijný režim");
+    const beforeManualAI = instructions.length;
+    await click(".lesson-status-action", 1);
+    await waitFor(
+      "document.querySelectorAll('.lesson-open.done').length === 1",
+    );
+    assert.equal(store.snapshot().course.completed, 1);
+    assert.equal(store.snapshot().course.started, 0);
+    assert.equal(store.snapshot().messages.length, 0);
+    await click(".lesson-status-action", 1);
+    await waitFor(
+      "document.querySelectorAll('.lesson-open.done').length === 0",
+    );
+    assert.equal(store.snapshot().course.completed, 0);
+    assert.equal(instructions.length, beforeManualAI);
     await fill(".lesson-language select", "en");
     await textButton("Začať štúdium");
     await waitFor(
@@ -295,11 +355,127 @@ app
     );
     assert.equal(store.snapshot().course.completed, 1);
     assert.equal(store.snapshot().messages.length, 1);
-    await click(".lesson-list button", 0);
+    await click(".lesson-open", 0);
     await waitFor(
       "document.querySelector('.lesson-heading h1')?.textContent === 'Classes' && !document.querySelector('.messages .spin')",
     );
     assert.equal(store.lesson(one).status, "completed");
+    const beforePathAI = instructions.length;
+    const beforePath = store.snapshot();
+    await click(".path-menu summary");
+    await textButton("Označiť celý Learning Path ako hotový");
+    await waitFor("!!document.querySelector('.path-completion-dialog[open]')");
+    await textButton("Zrušiť");
+    assert.equal(store.snapshot().course.completed, 1);
+    await click(".path-menu summary");
+    await textButton("Označiť celý Learning Path ako hotový");
+    await textButton("Dokončiť celý plán");
+    await waitFor(
+      "document.querySelector('.path-progress strong').textContent === '100%'",
+    );
+    assert.equal(store.snapshot().course.completed, 2);
+    assert.equal(store.snapshot().course.activeLessonId, null);
+    assert.equal(instructions.length, beforePathAI);
+    await click(".path-undo button");
+    await waitFor(
+      "document.querySelector('.path-progress strong').textContent === '50%'",
+    );
+    assert.deepEqual(store.snapshot().lessons, beforePath.lessons);
+    assert.equal(store.snapshot().course.activeLessonId, one);
+    await click(".path-menu summary");
+    await textButton("Označiť celý Learning Path ako hotový");
+    await textButton("Dokončiť celý plán");
+    await waitFor(
+      "document.querySelector('.path-progress strong').textContent === '100%'",
+    );
+    store.close();
+    store = new Store(join(temp, "test.sqlite"));
+    learning = new Learning(store, connection, (event) =>
+      window.webContents.send("studyflow:event", event),
+    );
+    await window.loadFile(join(root, "dist-ui", "index.html"));
+    await waitFor(
+      "document.querySelector('.path-progress strong')?.textContent === '100%'",
+    );
+    assert.equal(store.snapshot().course.completed, 2);
+    await click(".path-menu summary");
+    await textButton("Znovu otvoriť študijný plán");
+    await waitFor(
+      "document.querySelector('.path-progress strong')?.textContent === '50%'",
+    );
+    assert.deepEqual(store.snapshot().lessons, beforePath.lessons);
+    assert.equal(instructions.length, beforePathAI);
+    // Exercise real renderer layout at requested desktop sizes and scaled workspaces.
+    mkdirSync(join(root, "artifacts", "study-layout"), { recursive: true });
+    for (const [width, height, zoom] of [
+      [1920, 1080, 1],
+      [2560, 1440, 1],
+      [1366, 768, 1],
+      [1366, 768, 1.25],
+      [1366, 768, 1.5],
+    ]) {
+      window.setContentSize(width, height);
+      window.webContents.setZoomFactor(zoom);
+      await new Promise((r) => setTimeout(r, 150));
+      await evaluate(
+        "new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))",
+      );
+      const metrics = await evaluate(`(() => {
+        const rect = selector => { const r=document.querySelector(selector).getBoundingClientRect(); return {x:r.x,y:r.y,width:r.width,height:r.height,right:r.right,bottom:r.bottom}; };
+        return { width:innerWidth,height:innerHeight,header:rect('.lesson-heading'),language:rect('.lesson-language'),chat:rect('.message-width'),messages:rect('.messages'),composer:rect('.composer'),next:rect('.next-button'),toolbar:rect('.topbar'),path:rect('.path-panel'),horizontal:document.documentElement.scrollWidth>innerWidth, proseSize:getComputedStyle(document.querySelector('.messages .prose')).fontSize };
+      })()`);
+      assert.equal(metrics.horizontal, false, JSON.stringify(metrics));
+      assert.ok(
+        metrics.header.y - metrics.toolbar.bottom < 2,
+        JSON.stringify(metrics),
+      );
+      assert.ok(
+        metrics.language.bottom <= metrics.header.bottom,
+        JSON.stringify(metrics),
+      );
+      assert.ok(
+        metrics.composer.bottom <= metrics.height + 1,
+        JSON.stringify(metrics),
+      );
+      assert.ok(
+        metrics.composer.width > metrics.chat.width - 100,
+        JSON.stringify(metrics),
+      );
+      assert.ok(metrics.messages.height > 150, JSON.stringify(metrics));
+      assert.ok(
+        metrics.next.bottom <= metrics.composer.y,
+        JSON.stringify(metrics),
+      );
+      assert.equal(metrics.proseSize, "16px");
+      if (zoom === 1 && width >= 1920)
+        assert.ok(metrics.chat.width >= 1000, JSON.stringify(metrics));
+      writeFileSync(
+        join(
+          root,
+          "artifacts",
+          "study-layout",
+          `${width}x${height}-${zoom}.png`,
+        ),
+        (await window.webContents.capturePage()).toPNG(),
+      );
+      console.info("PASS layout", width, height, zoom, JSON.stringify(metrics));
+    }
+    window.webContents.setZoomFactor(1);
+    window.setContentSize(1440, 940);
+    await click(".lesson-status-action", 1);
+    await waitFor(
+      "document.querySelector('.path-progress strong').textContent === '100%'",
+    );
+    assert.equal(instructions.length, beforePathAI);
+    await click(".lesson-status-action", 1);
+    await waitFor(
+      "document.querySelector('.path-progress strong').textContent === '50%'",
+    );
+    assert.equal(instructions.length, beforePathAI);
+    console.info(
+      "PASS: manual lesson completion/reversal, confirmed whole-path completion/cancel/undo/reopen, no AI calls, SQLite restart persistence",
+    );
+
     await textButton("Bežný chat");
     await waitFor(
       "document.querySelectorAll('.normal-messages .message').length === 8",
@@ -322,7 +498,9 @@ app
     );
     assert.deepEqual(failures, []);
     mkdirSync(join(root, "artifacts"), { recursive: true });
-    await evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+    await evaluate(
+      "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
+    );
     writeFileSync(
       join(root, "artifacts", "normal-chat-smoke.png"),
       (await window.webContents.capturePage()).toPNG(),
@@ -345,7 +523,9 @@ app
     await waitFor("document.documentElement.dataset.theme === 'light'");
     await textButton("Bežný chat");
     await waitFor("!!document.querySelector('.normal-chat-page')");
-    await evaluate("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+    await evaluate(
+      "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
+    );
     writeFileSync(
       join(root, "artifacts", "normal-chat-light-smoke.png"),
       (await window.webContents.capturePage()).toPNG(),

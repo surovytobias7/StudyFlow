@@ -786,10 +786,13 @@ label {
 }
 .lesson-language {
   display: flex;
+  flex: 0 0 auto;
+  flex-direction: row;
+  white-space: nowrap;
   align-items: center;
   gap: 8px;
   width: auto;
-  margin: 4px 0 8px;
+  margin: 0;
 }
 .lesson-language select {
   width: auto;
@@ -812,6 +815,28 @@ label {
   height: 100%;
   overflow: hidden;
 }
+.study-content {
+  overflow: hidden;
+}
+.study-navigation-toggle,
+.navigation-backdrop {
+  display: none;
+}
+.lesson-toolbar {
+  padding: 14px 28px;
+  border-bottom: 1px solid var(--border);
+}
+.lesson-heading-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-bottom: 12px;
+}
+.lesson-heading-top .lesson-meta {
+  margin-bottom: 0;
+}
 .lesson-panel {
   flex: 1;
   min-width: 0;
@@ -819,7 +844,7 @@ label {
   flex-direction: column;
 }
 .lesson-heading {
-  padding: 29px 38px 21px;
+  padding: 16px 28px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
@@ -829,21 +854,21 @@ label {
   gap: 12px;
   margin-bottom: 11px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 .status-pill {
   padding: 3px 7px;
   background: var(--accent-bg);
   border-radius: 5px;
   color: var(--accent);
-  font-size: 9px;
+  font-size: 11px;
 }
 .status-pill.completed {
   color: var(--green);
   background: var(--raised);
 }
 .lesson-heading h1 {
-  font-size: 23px;
+  font-size: 26px;
   margin-bottom: 9px;
 }
 .lesson-subtitle {
@@ -851,7 +876,7 @@ label {
   align-items: center;
   justify-content: space-between;
   gap: 15px;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--subtle);
 }
 .objective {
@@ -867,9 +892,9 @@ label {
   scrollbar-color: var(--border) transparent;
 }
 .message-width {
-  max-width: 800px;
+  max-width: 1120px;
   margin: 0 auto;
-  padding: 28px 38px;
+  padding: 24px 28px;
 }
 .message {
   margin-bottom: 31px;
@@ -1021,12 +1046,12 @@ label {
   font-size: 11px;
 }
 .lesson-controls {
-  padding: 0 28px 12px;
+  padding: 0 28px 10px;
   background: var(--bg);
   flex-shrink: 0;
 }
 .controls-width {
-  max-width: 750px;
+  max-width: 1064px;
   margin: auto;
 }
 .quick-actions {
@@ -1036,10 +1061,10 @@ label {
   padding: 12px 0;
 }
 .quick-actions button {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
   border: 1px solid var(--border);
-  padding: 6px 9px;
+  padding: 7px 10px;
   background: var(--panel);
   gap: 6px;
 }
@@ -1047,6 +1072,7 @@ label {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
   padding: 4px 0 12px;
 }
 .next-button {
@@ -1055,7 +1081,7 @@ label {
   color: var(--accent);
   border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
   padding: 9px 14px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 550;
 }
 .next-button:hover:not(:disabled) {
@@ -1071,13 +1097,13 @@ label {
   border-color: var(--subtle);
 }
 .composer textarea {
-  resize: none;
+  resize: vertical;
   border: 0;
   background: none;
   padding: 2px;
-  font-size: 12px;
+  font-size: 15px;
   max-height: 140px;
-  min-height: 46px;
+  min-height: 54px;
 }
 .composer textarea:focus-visible {
   outline: none;
@@ -1111,7 +1137,7 @@ label {
   padding-top: 10px;
 }
 .path-panel {
-  width: 278px;
+  width: 300px;
   flex-shrink: 0;
   border-left: 1px solid var(--border);
   background: var(--panel);
@@ -1123,11 +1149,11 @@ label {
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 24px 20px 18px;
+  padding: 18px 16px;
   color: var(--muted);
 }
 .path-title h2 {
-  font-size: 12px;
+  font-size: 14px;
   margin: 0;
   color: var(--text);
 }
@@ -1146,7 +1172,7 @@ label {
   display: flex;
   justify-content: space-between;
   margin-bottom: 11px;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
 }
 .path-progress strong {
@@ -1173,14 +1199,23 @@ label {
 .lesson-list button > span:nth-child(2) {
   flex: 1;
   line-height: 1.5;
-  font-size: 11px;
+  font-size: 13px;
   overflow-wrap: anywhere;
 }
 .lesson-list small {
   display: block;
   margin-top: 5px;
-  font-size: 9px;
+  font-size: 11px;
   color: var(--subtle);
+}
+.lesson-list .lesson-status-action {
+  width: auto;
+  max-width: calc(100% - 42px);
+  margin: -4px 0 8px 42px;
+  padding: 4px 6px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--accent);
 }
 .lesson-marker {
   display: grid;
@@ -1398,7 +1433,150 @@ label {
     transform: rotate(360deg);
   }
 }
+.lesson-panel .prose {
+  font-size: 16px;
+  line-height: 1.75;
+}
+.lesson-panel .prose pre code {
+  font-size: 14px;
+}
+.lesson-panel .prose code {
+  font-size: 0.88em;
+}
+.lesson-panel .prose h3 {
+  font-size: 18px;
+}
+.lesson-panel .prose h2 {
+  font-size: 21px;
+}
+.lesson-panel .message-author {
+  font-size: 13px;
+}
+.lesson-panel .composer-hint {
+  font-size: 11px;
+}
+.lesson-panel .composer .send {
+  width: 34px;
+  height: 34px;
+}
+.lesson-panel .lesson-language {
+  font-size: 12px;
+}
+.lesson-panel .lesson-language select {
+  padding: 7px 8px;
+}
+.lesson-panel .lesson-language {
+  margin-bottom: 0;
+}
+.lesson-panel .plan-page,
+.lesson-panel .completion {
+  overflow: auto;
+  width: 100%;
+}
+.path-menu {
+  position: relative;
+  flex-shrink: 0;
+}
+.path-menu summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  cursor: pointer;
+  list-style: none;
+}
+.path-menu summary::-webkit-details-marker {
+  display: none;
+}
+.path-menu summary:hover {
+  background: var(--hover);
+}
+.path-menu-items {
+  position: absolute;
+  right: 0;
+  top: 38px;
+  z-index: 4;
+  width: 248px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--raised);
+  box-shadow: 0 8px 24px #0004;
+}
+.path-menu-items button {
+  width: 100%;
+  padding: 10px;
+  text-align: left;
+  justify-content: flex-start;
+  font-size: 13px;
+}
+.path-undo {
+  margin: 0 16px 16px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--green);
+}
+.path-undo button {
+  margin-top: 8px;
+  color: var(--accent);
+}
+.path-completion-dialog {
+  width: min(480px, 90vw);
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 14px;
+}
+.path-completion-dialog::backdrop {
+  background: #0009;
+}
+.path-completion-dialog .row {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.path-completion-dialog strong {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 1400px) {
+  .study-shell .path-panel {
+    width: 270px;
+  }
+  .study-shell .sidebar {
+    width: 210px;
+  }
+}
 @media (max-width: 1150px) {
+  .study-shell .sidebar {
+    display: none;
+  }
+  .study-shell .study-navigation-toggle {
+    display: inline-flex;
+  }
+  .study-shell .breadcrumb {
+    flex: 1;
+  }
+  .study-shell.navigation-open .sidebar {
+    display: flex;
+    position: absolute;
+    left: 0;
+    top: 54px;
+    bottom: 0;
+    width: 230px;
+    z-index: 7;
+  }
+  .study-shell.navigation-open .navigation-backdrop {
+    display: block;
+    position: fixed;
+    inset: 54px 0 0 230px;
+    border-radius: 0;
+    background: #0006;
+    z-index: 6;
+  }
   .sidebar {
     width: 195px;
   }
@@ -1406,7 +1584,7 @@ label {
     width: 235px;
   }
   .lesson-heading {
-    padding: 24px;
+    padding: 14px 20px;
   }
   .message-width {
     padding: 24px;
@@ -1415,16 +1593,62 @@ label {
     padding: 0 18px 10px;
   }
   .review-button {
-    font-size: 9px;
+    font-size: 11px;
   }
   .quick-actions button {
-    font-size: 9px;
+    font-size: 12px;
   }
   .page {
     padding: 32px;
   }
   .saved {
     display: none;
+  }
+}
+@media (max-height: 820px) {
+  .study-shell .lesson-heading {
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+  .study-shell .lesson-heading-top {
+    margin-bottom: 6px;
+  }
+  .study-shell .lesson-heading h1 {
+    font-size: 23px;
+    margin-bottom: 5px;
+  }
+  .study-shell .quick-actions {
+    padding: 8px 0;
+  }
+  .study-shell .composer-hint {
+    display: none;
+  }
+}
+@media (max-height: 650px) {
+  .study-shell .lesson-heading {
+    padding-top: 4px;
+    padding-bottom: 6px;
+  }
+  .study-shell .lesson-controls {
+    padding-bottom: 8px;
+  }
+  .study-shell .composer textarea {
+    min-height: 40px;
+    height: 40px;
+  }
+  .study-shell .quick-actions {
+    padding: 6px 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+  .study-shell .quick-actions button {
+    flex-shrink: 0;
+  }
+  .study-shell .next-row {
+    padding-bottom: 8px;
+  }
+  .study-shell .lesson-heading h1 {
+    font-size: 22px;
   }
 }
 @media (max-width: 900px) {

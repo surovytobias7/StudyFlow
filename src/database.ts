@@ -326,6 +326,24 @@ export class Store {
       const course = this.courses().find((c) => c.id === courseId);
       if (!course || course.started)
         throw new Error("Only an unstarted learning path can be edited.");
+      const previous = this.lessons(courseId);
+      const sameLessons =
+        previous.length === plan.lessons.length &&
+        previous.every((lesson, index) => {
+          const draft = plan.lessons[index]!;
+          return (
+            lesson.title === draft.title &&
+            lesson.objective === draft.objective &&
+            JSON.stringify(lesson.references) ===
+              JSON.stringify(draft.references)
+          );
+        });
+      if (sameLessons) {
+        this.db
+          .prepare("UPDATE Courses SET title=? WHERE id=?")
+          .run(plan.title, courseId);
+        return this.snapshot(courseId);
+      }
       const path = this.db
         .prepare("SELECT id FROM LearningPaths WHERE courseId=?")
         .get(courseId) as { id: string };
@@ -334,6 +352,22 @@ export class Store {
         .prepare("UPDATE Courses SET title=? WHERE id=?")
         .run(plan.title, courseId);
       this.insertLessons(courseId, path.id, plan);
+      // Draft editing must not discard manually saved completion states.
+      const remaining = [...previous];
+      for (const lesson of this.lessons(courseId)) {
+        const index = remaining.findIndex(
+          (old) =>
+            old.objective === lesson.objective &&
+            JSON.stringify(old.references) ===
+              JSON.stringify(lesson.references),
+        );
+        if (index !== -1) {
+          const old = remaining.splice(index, 1)[0]!;
+          this.db
+            .prepare("UPDATE LessonProgress SET status=? WHERE lessonId=?")
+            .run(old.status, lesson.id);
+        }
+      }
       return this.snapshot(courseId);
     });
   }
@@ -366,6 +400,7 @@ export class Store {
         throw new Error(
           "The active lesson changed. Refresh before completing it.",
         );
+      this.invalidatePathUndo(lesson.courseId);
       const others = this.lessons(lesson.courseId).filter(
         (l) => l.id !== lessonId && l.status !== "completed",
       );
@@ -407,6 +442,7 @@ export class Store {
       if (!event) throw new Error("Completion event not found.");
       const lesson = this.lesson(event.lessonId);
       if (!event.undone) {
+        this.invalidatePathUndo(lesson.courseId);
         this.db
           .prepare("UPDATE LessonProgress SET status=? WHERE lessonId=?")
           .run(event.previousStatus, lesson.id);
@@ -420,12 +456,111 @@ export class Store {
       return this.snapshot(lesson.courseId);
     });
   }
-  mark(lessonId: string, status: "in_progress" | "needs_review") {
+  mark(lessonId: string, status: Lesson["status"]) {
     const lesson = this.lesson(lessonId);
-    this.db
-      .prepare("UPDATE LessonProgress SET status=? WHERE lessonId=?")
-      .run(status, lessonId);
-    return this.snapshot(lesson.courseId);
+    return this.transaction(() => {
+      if (lesson.status !== status) this.invalidatePathUndo(lesson.courseId);
+      this.db
+        .prepare("UPDATE LessonProgress SET status=? WHERE lessonId=?")
+        .run(status, lessonId);
+      return this.snapshot(lesson.courseId);
+    });
+  }
+  private invalidatePathUndo(courseId: string) {
+    const key = `pathCompletion:${courseId}`;
+    const saved = this.settings()[key];
+    if (saved)
+      this.setting(key, JSON.stringify({ ...JSON.parse(saved), undone: true }));
+  }
+  completePath(courseId: string, operationId: string) {
+    return this.transaction(() => {
+      const course = this.courses().find((c) => c.id === courseId);
+      if (!course) throw new Error("Course not found.");
+      const key = `pathCompletion:${courseId}`;
+      const previous = this.settings()[key];
+      // Repeated delivery must not replace the original undo snapshot.
+      if (previous && JSON.parse(previous).operationId === operationId)
+        return this.snapshot(courseId);
+      const lessons = this.lessons(courseId);
+      if (lessons.every((l) => l.status === "completed"))
+        return this.snapshot(courseId);
+      this.setting(
+        key,
+        JSON.stringify({
+          operationId,
+          activeLessonId: course.activeLessonId,
+          started: course.started,
+          lessons: lessons.map(({ id, status }) => ({ id, status })),
+          undone: false,
+        }),
+      );
+      this.db
+        .prepare(
+          `UPDATE LessonProgress SET status='completed'
+        WHERE lessonId IN (SELECT id FROM Lessons WHERE courseId=?)`,
+        )
+        .run(courseId);
+      this.db
+        .prepare("UPDATE Courses SET activeLessonId=NULL,started=1 WHERE id=?")
+        .run(courseId);
+      return this.snapshot(courseId);
+    });
+  }
+  reopenPath(courseId: string, undoOperationId?: string) {
+    return this.transaction(() => {
+      const course = this.courses().find((c) => c.id === courseId);
+      if (!course) throw new Error("Course not found.");
+      const key = `pathCompletion:${courseId}`;
+      const saved = this.settings()[key];
+      const previous = saved
+        ? (JSON.parse(saved) as {
+            operationId: string;
+            activeLessonId: string | null;
+            started: number;
+            lessons: { id: string; status: Lesson["status"] }[];
+            undone: boolean;
+          })
+        : undefined;
+      if (
+        undoOperationId &&
+        (!previous || previous.operationId !== undoOperationId)
+      )
+        throw new Error("Completion event not found.");
+      if (undoOperationId && previous?.undone) return this.snapshot(courseId);
+      const lessons = this.lessons(courseId);
+      if (lessons.some((l) => l.status !== "completed"))
+        return this.snapshot(courseId); // Never overwrite subsequent progress edits.
+      if (
+        previous &&
+        !previous.undone &&
+        previous.lessons.length === lessons.length &&
+        previous.lessons.every((l) =>
+          lessons.some((current) => current.id === l.id),
+        )
+      ) {
+        const update = this.db.prepare(
+          "UPDATE LessonProgress SET status=? WHERE lessonId=?",
+        );
+        for (const lesson of previous.lessons)
+          update.run(lesson.status, lesson.id);
+        this.setting(key, JSON.stringify({ ...previous, undone: true }));
+      } else if (lessons[0]) {
+        this.db
+          .prepare(
+            "UPDATE LessonProgress SET status='not_started' WHERE lessonId=?",
+          )
+          .run(lessons[0].id);
+      }
+      const next = this.lessons(courseId).find((l) => l.status !== "completed");
+      this.db
+        .prepare("UPDATE Courses SET activeLessonId=?,started=? WHERE id=?")
+        .run(
+          undoOperationId ? previous!.activeLessonId : (next?.id ?? null),
+          undoOperationId ? previous!.started : 1,
+          courseId,
+        );
+      return this.snapshot(courseId);
+    });
   }
   addMessage(
     lessonId: string,

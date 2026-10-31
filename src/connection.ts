@@ -29,6 +29,7 @@ export class Connection {
   private state!: State;
   private busy = false;
   private models: { slug: string; display_name: string }[] = [];
+  private modelRefresh?: Promise<ReturnType<Connection["status"]>>;
   private verified = false;
   private listener?: Server;
   private cancelLogin?: () => void;
@@ -351,10 +352,17 @@ export class Connection {
   }
 
   async refreshModels() {
-    return this.exclusive(async () => {
+    if (this.modelRefresh) return this.modelRefresh;
+    const request = this.exclusive(async () => {
       await this.loadModels();
       return this.status();
     });
+    this.modelRefresh = request;
+    try {
+      return await request;
+    } finally {
+      if (this.modelRefresh === request) this.modelRefresh = undefined;
+    }
   }
 
   async generate(
@@ -363,6 +371,9 @@ export class Connection {
     input: unknown[],
     delta: (text: string) => void,
   ) {
+    // The renderer discovers models on startup; the first chat can arrive before
+    // that finishes. Join discovery rather than rejecting the user's question.
+    if (this.modelRefresh) await this.modelRefresh;
     return this.exclusive(async () => {
       if (!this.models.length) await this.loadModels();
       if (!this.models.some((m) => m.slug === model))

@@ -4,13 +4,20 @@ A local-first Windows tutor with a T3 Code-inspired workspace. Import study mate
 
 ## Launch
 
-Open `release/StudyFlow Setup 0.1.0.exe` to install, or `release/win-unpacked/StudyFlow.exe` to run the unpacked build. The installer is unsigned.
+1. Double-click `release/StudyFlow Setup 0.1.1.exe` and complete the Windows installer.
+2. Launch **StudyFlow** from its desktop icon or the Start menu. The default installed executable is `%LOCALAPPDATA%/Programs/StudyFlow/StudyFlow.exe`.
+3. Your saved ChatGPT session is restored. If you have not connected an account yet, open **Settings → Continue with ChatGPT** and authorize eligible plan usage in your system browser.
+
+The installed app includes the frontend, Electron backend, SQLite runtime and importers. **No Node.js, npm command, terminal, development server or cloud server is required.** Internet is needed for ChatGPT responses; saved conversations, documents and progress remain local.
+
+The installer is unsigned. Windows may show an unknown-publisher/SmartScreen prompt. For an unpacked installation, keep the entire `release/win-unpacked/` folder together and launch its `StudyFlow.exe`; copying only that executable is insufficient.
+
+## Development only
 
 For development, use Node.js 24:
 
 ```powershell
 npm install
-npx install-electron
 npm start
 ```
 
@@ -28,6 +35,10 @@ Settings contains separate **Interface language** and **Default AI response lang
 4. Rename, remove or reorder draft lessons, then start learning.
 5. Ask questions or use quick actions. Click **I understand, next lesson** / **Rozumiem, ďalšia lekcia** when ready. Exercises are optional.
 6. Use the learning-path sidebar to revisit lessons. Undo completion or mark a lesson incomplete/for review. Restarting restores the saved workspace.
+
+Each lesson in the Learning Path sidebar has a **Mark as completed / Mark as incomplete** action, including unopened lessons. To complete the entire path at once, use **⋯ → Mark Learning Path as Completed** and confirm. **Undo** restores the exact previous lesson states. **⋯ → Reopen Learning Path** restores the previous states and opens the first unfinished lesson; for a path completed through the ordinary workflow, it reopens the first lesson and keeps the others completed. These actions never call AI or remove saved conversations/materials.
+
+Automatic updates are not implemented. To update, close StudyFlow and run the new installer over the existing installation. Keep the same installation directory; existing Desktop/Start-menu shortcuts and `%APPDATA%/StudyFlow/` data are reused.
 
 PDF text, PPTX, PNG/JPEG/WebP, TXT and Markdown are supported. Click a source in the learning sidebar to read extracted material and included images offline. Public HTTPS webpages are extracted locally; YouTube attempts public captions and falls back to pasted transcripts.
 
@@ -47,7 +58,9 @@ npm run test:ui
 npm run package:win
 ```
 
-24 automated tests cover callback rejection, streaming, malformed responses, plan validation, completion/idempotency, undo, revisits, real v1-to-v2 SQLite migration, independent normal conversations, response-language defaults/overrides, interrupted responses, file errors, presentation ordering, localization and URL address restrictions. `test:ui` drives the actual Electron renderer and preload against an isolated SQLite database and simulated AI; it never reads credentials or uses plan allowance. It checks chat CRUD, optional attachments, Markdown/code/math, both languages, mode switching, lesson completion/revisit and restoration. Screenshots are written to `artifacts/`.
+32 automated tests cover callback rejection, streaming, malformed responses, plan validation, individual/whole-path completion, idempotency, transactional rollback, undo, revisits, real v1-to-v2 SQLite migration, independent normal conversations, response-language defaults/overrides, interrupted responses, safe shutdown, plan-limit recovery, file errors, presentation ordering, localization and URL address restrictions. `test:ui` drives the actual Electron renderer and preload against an isolated SQLite database and simulated AI; it never reads credentials or uses plan allowance. It also checks concurrent startup model discovery, chat CRUD, optional attachments, Markdown/code/math, both languages, mode switching, manual lesson/path actions and restoration. Study layout screenshots cover 1920x1080, 2560x1440, 1366x768 and simulated 125%/150% scaling in `artifacts/study-layout/`.
+
+The installed 0.1.1 EXE also passed local production regression using `node scripts/test-release.cjs "$env:LOCALAPPDATA/Programs/StudyFlow/StudyFlow.exe" --local-update`: native IPC, individual/path completion, confirmation/cancel, process restart, SQLite progress restoration, reopening, dashboard and saved Normal Chat/language preference. This uses a temporary fixture profile and no AI. Evidence: `artifacts/release-verification/local-update-result.json`. The existing installation was updated in place and its data files were verified unchanged.
 
 Live verification on 2026-10-30 passed OAuth/model discovery/inference and a separate acceptance database using `fixtures/oop-acceptance.pptx`: generated six lessons, taught Lesson 1, answered a follow-up and example, completed Lesson 1, taught Lesson 2, preserved earlier conversations, and restored state after database reopen. Credential-free evidence is in `%APPDATA%/StudyFlow/acceptance/`. This is a service-layer acceptance run; a complete native UI click-through remains to be validated.
 
@@ -62,6 +75,8 @@ node scripts/start.cjs --acceptance-normal
 Live Normal Chat verification on 2026-10-31 passed three streamed requests: no-file Slovak explanation, an English follow-up with saved history, and an English attachment summarized in Slovak. It created no courses or progress. Evidence: `%APPDATA%/StudyFlow/acceptance/normal-2026-10-31T18-03-40-770Z/result.json`.
 
 ## Current limitations
+
+The following are postponed beyond the first release and do not require extra services for the core workflow:
 
 - PDF extraction reads selectable text, not scanned pages or diagrams. Use screenshots for visual material.
 - PPTX retains actual slide order and includes up to 12 embedded images (each up to 3 MB). Charts, animations and exact slide layouts are not rendered. PowerPoint/LibreOffice conversion is not installed or implemented.

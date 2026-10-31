@@ -36,6 +36,7 @@ import {
   Dumbbell,
   PanelRightClose,
   PanelRightOpen,
+  PanelLeft,
 } from "lucide-react";
 import type {
   Snapshot,
@@ -46,11 +47,13 @@ import type {
 } from "../src/domain";
 import "katex/dist/katex.min.css";
 import "./style.css";
+import { PathCompletionDialog } from "./PathCompletionDialog";
 import { ConversationDialog } from "./ConversationDialog";
 import { localizeMessage } from "../src/localization";
 import { attachmentsSchema } from "../src/domain";
 
 type Connection = {
+  error?: string;
   connected: boolean;
   planEnabled: boolean;
   account: string;
@@ -195,6 +198,12 @@ export default function App() {
   const [sourceUrl, setSourceUrl] = useState("");
   const [search, setSearch] = useState("");
   const [undo, setUndo] = useState("");
+  const [pathConfirmation, setPathConfirmation] = useState(false);
+  const [navigationOpen, setNavigationOpen] = useState(false);
+  const [pathUndo, setPathUndo] = useState<{
+    courseId: string;
+    operationId: string;
+  } | null>(null);
   const [pathVisible, setPathVisible] = useState(true);
   const [overview, setOverview] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
@@ -224,6 +233,7 @@ export default function App() {
         setData(snapshot);
         setNormal(normalSnapshot);
         setConnection(status);
+        if (status.error) setError(status.error);
         if (snapshot.settings.activeMode === "normal") {
           setView("normal");
         } else if (snapshot.course) setView("learn");
@@ -544,8 +554,64 @@ export default function App() {
       mode: "exercise",
     },
   ];
+  const languageControl = (
+    <label className="lesson-language">
+      {t("AI response language", "Jazyk odpovedí AI")}
+      <select
+        value={data.course?.aiLanguage ?? "default"}
+        disabled={busy}
+        onChange={(e) =>
+          void run(async () =>
+            setData(
+              await call<Snapshot>("courseLanguage", {
+                courseId: data.course!.id,
+                language: e.target.value === "default" ? null : e.target.value,
+              }),
+            ),
+          )
+        }
+      >
+        <option value="default">
+          {t("Use default", "Použiť predvolený")} (
+          {data.settings.tutorLanguage === "sk" ? "Slovenčina" : "English"})
+        </option>
+        <option value="sk">Slovenčina</option>
+        <option value="en">English</option>
+      </select>
+    </label>
+  );
   return (
-    <div className="app-shell">
+    <div
+      className={`app-shell ${view === "learn" ? "study-shell" : ""} ${navigationOpen ? "navigation-open" : ""}`}
+    >
+      {navigationOpen && (
+        <button
+          className="navigation-backdrop"
+          aria-label={t("Close navigation", "Zavrieť navigáciu")}
+          onClick={() => setNavigationOpen(false)}
+        />
+      )}
+      {pathConfirmation && data.course && (
+        <PathCompletionDialog
+          title={data.course.title}
+          count={data.lessons.length}
+          sk={sk}
+          busy={busy}
+          close={() => setPathConfirmation(false)}
+          confirm={() =>
+            void run(async () => {
+              const courseId = data.course!.id;
+              const operationId = crypto.randomUUID();
+              setData(
+                await call<Snapshot>("completePath", { courseId, operationId }),
+              );
+              setUndo("");
+              setPathUndo({ courseId, operationId });
+              setPathConfirmation(false);
+            })
+          }
+        />
+      )}
       {manageChat && (
         <ConversationDialog
           key={manageChat.id + manageChat.action}
@@ -818,6 +884,16 @@ export default function App() {
       </aside>
       <div className="workspace">
         <header className="topbar">
+          {view === "learn" && (
+            <button
+              className="icon-button study-navigation-toggle"
+              aria-label={t("Toggle navigation", "Prepnúť navigáciu")}
+              aria-expanded={navigationOpen}
+              onClick={() => setNavigationOpen(!navigationOpen)}
+            >
+              <PanelLeft size={18} />
+            </button>
+          )}
           <div className="breadcrumb">
             <BookOpen size={15} />
             <span>
@@ -894,7 +970,9 @@ export default function App() {
             {localizeMessage(notice, data.settings.language)}
           </div>
         )}
-        <main className="main-content">
+        <main
+          className={`main-content ${view === "learn" ? "study-content" : ""}`}
+        >
           {view === "normal" && (
             <section className="normal-chat-page">
               <header className="normal-chat-heading">
@@ -1586,36 +1664,9 @@ export default function App() {
           {view === "learn" && data.course && (
             <div className="learning-layout">
               <div className="lesson-panel">
-                <label className="lesson-language">
-                  {t("AI response language", "Jazyk odpovedí AI")}
-                  <select
-                    value={data.course?.aiLanguage ?? "default"}
-                    disabled={busy}
-                    onChange={(e) =>
-                      void run(async () =>
-                        setData(
-                          await call<Snapshot>("courseLanguage", {
-                            courseId: data.course!.id,
-                            language:
-                              e.target.value === "default"
-                                ? null
-                                : e.target.value,
-                          }),
-                        ),
-                      )
-                    }
-                  >
-                    <option value="default">
-                      {t("Use default", "Použiť predvolený")} (
-                      {data.settings.tutorLanguage === "sk"
-                        ? "Slovenčina"
-                        : "English"}
-                      )
-                    </option>
-                    <option value="sk">Slovenčina</option>
-                    <option value="en">English</option>
-                  </select>
-                </label>
+                {!lesson && (
+                  <div className="lesson-toolbar">{languageControl}</div>
+                )}
                 {plan ? (
                   <div className="page plan-page">
                     <span className="section-icon">
@@ -1736,7 +1787,11 @@ export default function App() {
                           });
                           const snapshot = await call<Snapshot>(
                             "activate",
-                            saved.lessons[0].id,
+                            (
+                              saved.lessons.find(
+                                (item) => item.status !== "completed",
+                              ) ?? saved.lessons[0]
+                            ).id,
                           );
                           setData(snapshot);
                           await explain(snapshot);
@@ -1750,24 +1805,27 @@ export default function App() {
                 ) : lesson ? (
                   <>
                     <div className="lesson-heading">
-                      <div className="lesson-meta">
-                        <span>
-                          {t("Lesson", "Lekcia")} {lesson.position + 1} /{" "}
-                          {data.lessons.length}
-                        </span>
-                        <span
-                          className={
-                            lesson.status === "completed"
-                              ? "status-pill completed"
-                              : "status-pill"
-                          }
-                        >
-                          {lesson.status === "completed"
-                            ? t("Completed", "Dokončená")
-                            : lesson.status === "needs_review"
-                              ? t("Needs review", "Na zopakovanie")
-                              : t("In progress", "Prebieha")}
-                        </span>
+                      <div className="lesson-heading-top">
+                        <div className="lesson-meta">
+                          <span>
+                            {t("Lesson", "Lekcia")} {lesson.position + 1} /{" "}
+                            {data.lessons.length}
+                          </span>
+                          <span
+                            className={
+                              lesson.status === "completed"
+                                ? "status-pill completed"
+                                : "status-pill"
+                            }
+                          >
+                            {lesson.status === "completed"
+                              ? t("Completed", "Dokončená")
+                              : lesson.status === "needs_review"
+                                ? t("Needs review", "Na zopakovanie")
+                                : t("In progress", "Prebieha")}
+                          </span>
+                        </div>
+                        {languageControl}
                       </div>
                       <h1>{lesson.title}</h1>
 
@@ -2045,13 +2103,22 @@ export default function App() {
                 ) : (
                   <div className="page completion">
                     <div className="completion-icon">
-                      <Check size={32} />
+                      {data.course.completed === data.course.total ? (
+                        <Check size={32} />
+                      ) : (
+                        <BookOpen size={32} />
+                      )}
                     </div>
                     <h1>
-                      {t(
-                        "Course complete. Nicely done.",
-                        "Kurz dokončený. Výborne.",
-                      )}
+                      {data.course.completed === data.course.total
+                        ? t(
+                            "Course complete. Nicely done.",
+                            "Kurz dokončený. Výborne.",
+                          )
+                        : t(
+                            "Choose a lesson to continue.",
+                            "Vyber lekciu a pokračuj.",
+                          )}
                     </h1>
                     <p>
                       {data.course.completed}/{data.course.total}{" "}
@@ -2063,7 +2130,11 @@ export default function App() {
                     <ul>
                       {data.lessons.map((l) => (
                         <li key={l.id}>
-                          <Check size={15} />
+                          {l.status === "completed" ? (
+                            <Check size={15} />
+                          ) : (
+                            <Circle size={15} />
+                          )}
                           <button
                             disabled={busy}
                             onClick={() => navigate(l.id)}
@@ -2099,7 +2170,83 @@ export default function App() {
                     <List size={16} />
                     <h2>{t("Learning path", "Študijný plán")}</h2>
                     <span>{data.lessons.length}</span>
+                    <details className="path-menu">
+                      <summary
+                        aria-label={t(
+                          "Learning Path actions",
+                          "Akcie študijného plánu",
+                        )}
+                      >
+                        <MoreHorizontal size={18} />
+                      </summary>
+                      <div className="path-menu-items">
+                        {progress === 100 ? (
+                          <button
+                            disabled={busy}
+                            onClick={(event) => {
+                              event.currentTarget
+                                .closest("details")
+                                ?.removeAttribute("open");
+                              void run(async () => {
+                                setData(
+                                  await call<Snapshot>("reopenPath", {
+                                    courseId: data.course!.id,
+                                  }),
+                                );
+                                setPathUndo(null);
+                                setUndo("");
+                              });
+                            }}
+                          >
+                            <RotateCcw size={16} />
+                            {t(
+                              "Reopen Learning Path",
+                              "Znovu otvoriť študijný plán",
+                            )}
+                          </button>
+                        ) : (
+                          <button
+                            disabled={busy}
+                            onClick={(event) => {
+                              event.currentTarget
+                                .closest("details")
+                                ?.removeAttribute("open");
+                              setPathConfirmation(true);
+                            }}
+                          >
+                            <Check size={16} />
+                            {t(
+                              "Mark Learning Path as Completed",
+                              "Označiť celý Learning Path ako hotový",
+                            )}
+                          </button>
+                        )}
+                      </div>
+                    </details>
                   </div>
+                  {pathUndo?.courseId === data.course.id &&
+                    progress === 100 && (
+                      <div className="path-undo" role="status">
+                        {t(
+                          "Learning Path completed.",
+                          "Študijný plán dokončený.",
+                        )}
+                        <button
+                          disabled={busy}
+                          onClick={() =>
+                            void run(async () => {
+                              setData(
+                                await call<Snapshot>("reopenPath", pathUndo),
+                              );
+                              setPathUndo(null);
+                            })
+                          }
+                        >
+                          <RotateCcw size={14} />
+                          {t("Undo", "Späť")}
+                        </button>
+                      </div>
+                    )}
                   <div className="path-progress">
                     <div>
                       <span>
@@ -2117,7 +2264,7 @@ export default function App() {
                       <li key={item.id}>
                         <button
                           disabled={busy || !data.course?.started}
-                          className={`${item.id === activeId ? "current" : ""} ${item.status === "completed" ? "done" : ""}`}
+                          className={`lesson-open ${item.id === activeId ? "current" : ""} ${item.status === "completed" ? "done" : ""}`}
                           onClick={() => navigate(item.id)}
                         >
                           <span className="lesson-marker">
@@ -2142,6 +2289,38 @@ export default function App() {
                           {item.id === activeId && (
                             <span className="current-dot" />
                           )}
+                        </button>
+                        <button
+                          className="lesson-status-action"
+                          disabled={busy}
+                          aria-pressed={item.status === "completed"}
+                          aria-label={`${item.status === "completed" ? t("Mark as incomplete", "Označiť ako nedokončené") : t("Mark as completed", "Označiť ako hotové")}: ${item.title}`}
+                          onClick={() =>
+                            void run(async () => {
+                              setData(
+                                await call<Snapshot>("mark", {
+                                  lessonId: item.id,
+                                  status:
+                                    item.status === "completed"
+                                      ? item.id === activeId
+                                        ? "in_progress"
+                                        : "not_started"
+                                      : "completed",
+                                }),
+                              );
+                              setUndo("");
+                              setPathUndo(null);
+                            })
+                          }
+                        >
+                          {item.status === "completed" ? (
+                            <RotateCcw size={11} />
+                          ) : (
+                            <Check size={11} />
+                          )}
+                          {item.status === "completed"
+                            ? t("Mark as incomplete", "Označiť ako nedokončené")
+                            : t("Mark as completed", "Označiť ako hotové")}
                         </button>
                       </li>
                     ))}

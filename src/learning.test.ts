@@ -139,3 +139,61 @@ test("normal chat retains interrupted output and saves the question even if mode
     store.close();
   }
 });
+
+test("shutdown can wait until a cancelled stream has persisted its partial answer", async () => {
+  const { store, learning, connection } = setup();
+  try {
+    const id = store.createNormalConversation(null).conversation!.id;
+    let cancel!: () => void;
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    connection.generate = async (_model, _instructions, _input, delta) => {
+      delta("Saved before shutdown");
+      started();
+      await new Promise<void>((_resolve, reject) => {
+        cancel = () => reject(new Error("Cancelled"));
+      });
+      return "unreachable";
+    };
+    const response = learning.normalChat(id, "Question", []);
+    const rejected = assert.rejects(response, /Cancelled/);
+    await ready;
+    let settled = false;
+    const idle = learning.whenIdle().then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    assert.equal(settled, false);
+    cancel();
+    await Promise.all([rejected, idle]);
+    assert.equal(store.normalMessages(id)[1]?.content, "Saved before shutdown");
+    assert.equal(store.normalMessages(id)[1]?.status, "interrupted");
+  } finally {
+    store.close();
+  }
+});
+
+test("subscription-limit errors preserve conversation state and do not retry another provider", async () => {
+  const { store, learning, connection } = setup();
+  try {
+    const id = store.createNormalConversation(null).conversation!.id;
+    let calls = 0;
+    connection.generate = async () => {
+      calls++;
+      throw new Error("OpenAI HTTP 429: usage_limit.");
+    };
+    await assert.rejects(
+      learning.normalChat(id, "Keep this question", []),
+      /usage_limit/,
+    );
+    assert.equal(calls, 1);
+    assert.equal(store.normalMessages(id)[0]?.content, "Keep this question");
+    assert.equal(store.normalMessages(id).length, 1);
+    assert.equal(store.courses().length, 0);
+    assert.equal(store.normalSnapshot().conversation?.id, id);
+  } finally {
+    store.close();
+  }
+});

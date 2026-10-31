@@ -141,6 +141,18 @@ const slovak: Record<string, string> = {
     "Účet je overený. Vyber model a spusti test pripojenia.",
 };
 export function localizeMessage(text: string, language: string): string {
+  if (
+    /^(OpenAI HTTP 429|Inference stopped:.*(?:usage|rate_limit|quota))/i.test(
+      text,
+    )
+  )
+    return (
+      (language === "sk"
+        ? "Bol dosiahnutý limit používania ChatGPT. Uložené konverzácie a pokrok sú zachované. Skús to neskôr; žiadna iná platená služba nebola použitá."
+        : "A ChatGPT usage or rate limit was reached. Saved conversations and progress are preserved. Try again later; no other billing was used.") +
+      "\n" +
+      text
+    );
   if (language !== "sk" || !text) return text;
   if (slovak[text]) return slovak[text];
   const analysis = /^Analyzing material (\d+)\/(\d+)$/.exec(text);

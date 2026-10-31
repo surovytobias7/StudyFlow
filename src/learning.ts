@@ -10,6 +10,7 @@ import {
 
 export class Learning {
   private busy = false;
+  private idle: Promise<void> = Promise.resolve();
   constructor(
     readonly store: Store,
     private connection: Pick<Connection, "generate" | "refreshModels">,
@@ -21,11 +22,19 @@ export class Learning {
         "Wait for the current tutor response or cancel it first.",
       );
     this.busy = true;
+    let finish!: () => void;
+    this.idle = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
     try {
       return await fn();
     } finally {
       this.busy = false;
+      finish();
     }
+  }
+  whenIdle() {
+    return this.idle;
   }
   assertIdle() {
     if (this.busy)

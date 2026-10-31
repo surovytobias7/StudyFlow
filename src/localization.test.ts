@@ -1,6 +1,20 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { localizeMessage } from "./localization.js";
+test("plan-limit notices explain recovery in both languages and retain diagnostics", () => {
+  assert.match(
+    localizeMessage("OpenAI HTTP 429: usage_limit.", "sk"),
+    /limit používania ChatGPT/,
+  );
+  assert.match(
+    localizeMessage("OpenAI HTTP 429: usage_limit.", "en"),
+    /Try again later/,
+  );
+  assert.match(
+    localizeMessage("Inference stopped: usage_limit.", "sk"),
+    /usage_limit/,
+  );
+});
 test("application notices and import warnings translate independently of content language", () => {
   assert.equal(
     localizeMessage("Analyzing material 2/5", "sk"),

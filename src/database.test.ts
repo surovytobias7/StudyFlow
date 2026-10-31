@@ -26,6 +26,203 @@ const plan: Plan = {
     }),
   ),
 };
+test("manual completion and reversal work out of order without opening lessons and survive restart", () => {
+  const directory = mkdtempSync(join(tmpdir(), "studyflow-manual-"));
+  const file = join(directory, "manual.sqlite");
+  let store = new Store(file);
+  try {
+    const created = store.create(material, plan);
+    const courseId = created.course!.id;
+    const [one, two, three] = created.lessons;
+    store.activate(one!.id);
+    store.addMessage(one!.id, "assistant", "Keep this conversation");
+    let snapshot = store.mark(three!.id, "completed");
+    assert.equal(snapshot.course?.completed, 1);
+    assert.equal(
+      snapshot.courses.find((course) => course.id === courseId)?.completed,
+      1,
+    );
+    assert.equal(snapshot.lessons[2]?.status, "completed");
+    assert.equal(snapshot.course?.activeLessonId, one!.id);
+    assert.equal(store.messages(three!.id).length, 0);
+    assert.equal(store.mark(three!.id, "completed").course?.completed, 1);
+    assert.equal(store.mark(two!.id, "completed").course?.completed, 2);
+    assert.equal(store.mark(three!.id, "not_started").course?.completed, 1);
+    store.close();
+    store = new Store(file);
+    snapshot = store.snapshot();
+    assert.equal(snapshot.course?.completed, 1);
+    assert.equal(snapshot.lessons[1]?.status, "completed");
+    assert.equal(snapshot.lessons[2]?.status, "not_started");
+    assert.equal(snapshot.course?.activeLessonId, one!.id);
+    assert.equal(snapshot.messages[0]?.content, "Keep this conversation");
+    assert.equal(snapshot.sources[0]?.id, material.id);
+    assert.equal(store.materials(courseId)[0]?.text, material.text);
+    assert.equal(snapshot.lessons.length, 3);
+    assert.equal(
+      (
+        store.db.prepare("SELECT count(*) AS n FROM LessonProgress").get() as {
+          n: number;
+        }
+      ).n,
+      3,
+    );
+    assert.equal(
+      (
+        store.db
+          .prepare("SELECT count(*) AS n FROM CompletionEvents")
+          .get() as { n: number }
+      ).n,
+      0,
+    );
+  } finally {
+    store.close();
+    rmSync(directory, { recursive: true });
+  }
+});
+test("manual draft completion is retained when starting, renaming or reordering the learning path", () => {
+  const store = new Store(":memory:");
+  try {
+    const created = store.create(material, plan);
+    const courseId = created.course!.id;
+    store.mark(created.lessons[2]!.id, "completed");
+    const unchanged = store.editPlan(courseId, plan);
+    assert.equal(unchanged.lessons[2]?.id, created.lessons[2]?.id);
+    assert.equal(unchanged.course?.completed, 1);
+    const edited = store.editPlan(courseId, {
+      ...plan,
+      lessons: [
+        { ...plan.lessons[2]!, title: "Renamed inheritance" },
+        plan.lessons[0]!,
+        plan.lessons[1]!,
+      ],
+    });
+    assert.equal(edited.lessons[0]?.status, "completed");
+    assert.equal(edited.course?.completed, 1);
+    assert.equal(store.messages(edited.lessons[0]!.id).length, 0);
+    assert.equal(edited.course?.activeLessonId, null);
+    store.activate(edited.lessons[1]!.id);
+    assert.equal(store.snapshot().course?.completed, 1);
+  } finally {
+    store.close();
+  }
+});
+test("whole-path completion is atomic, idempotent, reversible and persisted without losing history", () => {
+  const directory = mkdtempSync(join(tmpdir(), "studyflow-path-"));
+  const file = join(directory, "path.sqlite");
+  let store = new Store(file);
+  try {
+    const initial = store.create(material, plan);
+    const courseId = initial.course!.id;
+    const [one, two, three] = initial.lessons;
+    store.activate(one!.id);
+    store.addMessage(one!.id, "assistant", "Existing explanation");
+    store.mark(two!.id, "completed");
+    store.mark(three!.id, "needs_review");
+    const before = store.snapshot(courseId);
+    const other = store.create({ ...material, id: randomUUID() }, plan);
+    const operationId = randomUUID();
+    let snapshot = store.completePath(courseId, operationId);
+    assert.equal(snapshot.course?.completed, 3);
+    assert.equal(snapshot.course?.activeLessonId, null);
+    assert.ok(snapshot.lessons.every((l) => l.status === "completed"));
+    assert.equal(snapshot.courses.find((c) => c.id === courseId)?.completed, 3);
+    assert.equal(store.snapshot(other.course!.id).course?.completed, 0);
+    assert.equal(store.messages(three!.id).length, 0);
+    assert.equal(store.messages(one!.id)[0]?.content, "Existing explanation");
+    assert.deepEqual(
+      store.completePath(courseId, operationId).lessons,
+      snapshot.lessons,
+    );
+    store.completePath(courseId, randomUUID()); // already complete: retain original undo
+    store.close();
+    store = new Store(file);
+    assert.equal(store.snapshot(courseId).course?.completed, 3);
+    snapshot = store.reopenPath(courseId, operationId);
+    assert.deepEqual(snapshot.lessons, before.lessons);
+    assert.equal(
+      snapshot.course?.activeLessonId,
+      before.course?.activeLessonId,
+    );
+    assert.equal(snapshot.course?.started, before.course?.started);
+    assert.deepEqual(snapshot.sources, before.sources);
+    assert.deepEqual(snapshot.messages, before.messages);
+    assert.deepEqual(
+      store.reopenPath(courseId, operationId).lessons,
+      before.lessons,
+    );
+    assert.deepEqual(
+      store.completePath(courseId, operationId).lessons,
+      before.lessons,
+    );
+    store.completePath(courseId, randomUUID());
+    snapshot = store.reopenPath(courseId);
+    assert.deepEqual(snapshot.lessons, before.lessons);
+    assert.equal(snapshot.course?.activeLessonId, one!.id);
+    assert.equal(
+      store.db.prepare("SELECT count(*) AS n FROM LessonProgress").get()!.n,
+      6,
+    );
+    store.close();
+    store = new Store(file);
+    assert.deepEqual(store.snapshot(courseId).lessons, before.lessons);
+  } finally {
+    store.close();
+    rmSync(directory, { recursive: true });
+  }
+});
+
+test("path undo restores drafts, reopening naturally completed paths preserves other completed lessons", () => {
+  const store = new Store(":memory:");
+  try {
+    const initial = store.create(material, plan);
+    const courseId = initial.course!.id;
+    const operationId = randomUUID();
+    store.completePath(courseId, operationId);
+    let snapshot = store.reopenPath(courseId, operationId);
+    assert.equal(snapshot.course?.started, 0);
+    assert.equal(snapshot.course?.activeLessonId, null);
+    assert.deepEqual(snapshot.lessons, initial.lessons);
+    for (const lesson of initial.lessons) store.mark(lesson.id, "completed");
+    snapshot = store.reopenPath(courseId);
+    assert.equal(snapshot.course?.completed, 2);
+    assert.equal(snapshot.course?.activeLessonId, initial.lessons[0]!.id);
+    assert.equal(snapshot.course?.started, 1);
+    assert.equal(snapshot.lessons[1]!.status, "completed");
+    assert.throws(
+      () => store.completePath(randomUUID(), randomUUID()),
+      /Course not found/,
+    );
+    assert.equal(store.snapshot(courseId).course?.completed, 2);
+    store.completePath(courseId, randomUUID());
+    store.mark(initial.lessons[1]!.id, "needs_review");
+    assert.equal(store.reopenPath(courseId).lessons[1]!.status, "needs_review");
+  } finally {
+    store.close();
+  }
+});
+
+test("failed whole-path updates roll back all statuses and undo metadata", () => {
+  const store = new Store(":memory:");
+  try {
+    const before = store.create(material, plan);
+    store.db
+      .exec(`CREATE TRIGGER reject_completion BEFORE UPDATE ON LessonProgress
+      WHEN old.lessonId='${before.lessons[1]!.id}' BEGIN SELECT RAISE(ABORT,'test failure'); END;`);
+    assert.throws(
+      () => store.completePath(before.course!.id, randomUUID()),
+      /test failure/,
+    );
+    assert.deepEqual(store.snapshot().lessons, before.lessons);
+    assert.equal(
+      store.settings()[`pathCompletion:${before.course!.id}`],
+      undefined,
+    );
+  } finally {
+    store.close();
+  }
+});
+
 test("plans validate lesson boundaries, ordering and reject malformed results", () => {
   assert.equal(parsePlan(JSON.stringify(plan)).lessons[1]?.title, "Properties");
   assert.throws(() => parsePlan('{"title":"Bad","lessons":[]}'), /invalid/);

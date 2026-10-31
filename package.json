@@ -1,6 +1,6 @@
 {
   "name": "studyflow",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "StudyFlow — local-first, one-lesson-at-a-time tutor",
   "type": "module",
@@ -14,6 +14,7 @@
     "start": "npm run build && node scripts/start.cjs",
     "test": "npm run build && node --test dist/*.test.js",
     "test:ui": "npm run build && node scripts/test-ui.cjs",
+    "test:release": "node scripts/test-release.cjs",
     "dev:ui": "vite --host 127.0.0.1",
     "package:win": "npm run build && electron-builder --win nsis"
   },
@@ -37,6 +38,7 @@
     },
     "files": [
       "dist/**",
+      "!dist/**/*.test.js",
       "dist-ui/**",
       "poc/preload.cjs",
       "package.json"
@@ -47,7 +49,12 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "StudyFlow",
+      "deleteAppDataOnUninstall": false
     }
   },
   "dependencies": {
