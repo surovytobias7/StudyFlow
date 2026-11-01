@@ -37,6 +37,7 @@ import {
   PanelRightClose,
   PanelRightOpen,
   PanelLeft,
+  ArrowDown,
 } from "lucide-react";
 import type {
   Snapshot,
@@ -51,6 +52,7 @@ import { PathCompletionDialog } from "./PathCompletionDialog";
 import { ConversationDialog } from "./ConversationDialog";
 import { localizeMessage } from "../src/localization";
 import { attachmentsSchema } from "../src/domain";
+import { useChatScroll } from "./useChatScroll";
 
 type Connection = {
   error?: string;
@@ -173,6 +175,8 @@ export default function App() {
   >([]);
   const [normalStream, setNormalStream] = useState("");
   const [responding, setResponding] = useState(false);
+  const [studyResponding, setStudyResponding] = useState(false);
+  const [zoom, setZoom] = useState(1);
   const [manageChat, setManageChat] = useState<{
     id: string;
     title: string;
@@ -206,7 +210,6 @@ export default function App() {
   } | null>(null);
   const [pathVisible, setPathVisible] = useState(true);
   const [overview, setOverview] = useState(false);
-  const scroller = useRef<HTMLDivElement>(null);
   const activeId = data.course?.activeLessonId;
   const lesson = data.lessons.find((l) => l.id === activeId);
   const activeRef = useRef(activeId);
@@ -220,6 +223,18 @@ export default function App() {
   const progress = data.course?.total
     ? Math.round((data.course.completed / data.course.total) * 100)
     : 0;
+  const chatScroll = useChatScroll(
+    `${view}:${view === "normal" ? normal.conversation?.id : activeId}`,
+    `${data.messages.length}:${normal.messages.length}:${stream}:${normalStream}`,
+    view === "normal",
+  );
+  const scroller = chatScroll.ref;
+  const latestButton = chatScroll.away && (
+    <button className="latest-message" onClick={() => chatScroll.latest()}>
+      <ArrowDown size={15} />
+      {t("Latest message", "Najnovšia správa")}
+    </button>
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -248,6 +263,8 @@ export default function App() {
         if (mounted) setError(err.message);
       });
     const off = window.studyflow?.onEvent((event) => {
+      if (event.kind === "zoom") setZoom(Number(event.text));
+      if (event.kind === "error") setError(event.text);
       if (
         event.kind === "delta" &&
         event.lessonId &&
@@ -276,8 +293,20 @@ export default function App() {
     setStream("");
     setDraft("");
     setOverview(false);
-    if (scroller.current) scroller.current.scrollTop = 0;
   }, [activeId]);
+  useEffect(() => {
+    setZoom(Number(data.settings.zoomFactor) || 1);
+  }, [data.settings.zoomFactor]);
+  useEffect(() => {
+    setNavigationOpen(false);
+  }, [view, data.course?.id, normal.conversation?.id]);
+  useEffect(() => {
+    const narrow = matchMedia("(max-width: 850px)");
+    const adapt = () => setPathVisible(!narrow.matches);
+    adapt();
+    narrow.addEventListener("change", adapt);
+    return () => narrow.removeEventListener("change", adapt);
+  }, []);
   useEffect(() => {
     if (data.course && !data.course.started)
       setPlan({
@@ -290,14 +319,6 @@ export default function App() {
       });
     else setPlan(null);
   }, [data.course?.id, data.course?.started]);
-  useEffect(() => {
-    const el = scroller.current;
-    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 250)
-      el.scrollTop = el.scrollHeight;
-  }, [stream, normalStream]);
-  useEffect(() => {
-    if (scroller.current) scroller.current.scrollTop = 0;
-  }, [normal.conversation?.id]);
 
   async function run(work: () => Promise<void>) {
     if (lock.current) return;
@@ -325,6 +346,7 @@ export default function App() {
       return;
     activeRef.current = id;
     setStream("");
+    setStudyResponding(true);
     try {
       setData(
         await call<Snapshot>("chat", {
@@ -334,6 +356,7 @@ export default function App() {
         }),
       );
     } finally {
+      setStudyResponding(false);
       setStream("");
     }
   }
@@ -388,6 +411,7 @@ export default function App() {
       }
       if (!target) return;
       setResponding(true);
+      chatScroll.latest(false);
       const messageText = normalDraft.trim();
       normalRef.current = target.id;
       setNormal((value) => ({
@@ -426,6 +450,7 @@ export default function App() {
     });
   }
   function navigate(id: string) {
+    if (matchMedia("(max-width: 850px)").matches) setPathVisible(false);
     void run(async () => {
       await call("activeMode", "study");
       const snapshot = await call<Snapshot>("activate", id);
@@ -446,6 +471,8 @@ export default function App() {
     if (!activeId || !question.trim()) return;
     void run(async () => {
       const id = activeId;
+      setStudyResponding(true);
+      chatScroll.latest(false);
       setDraft("");
       setStream("");
       setData((value) => ({
@@ -465,6 +492,7 @@ export default function App() {
       try {
         setData(await call<Snapshot>("chat", { lessonId: id, question, mode }));
       } finally {
+        setStudyResponding(false);
         setStream("");
         setData(await call<Snapshot>("snapshot", data.course!.id));
       }
@@ -491,6 +519,11 @@ export default function App() {
         setView("learn");
       }
     });
+  }
+  function adjustZoom(action: "in" | "out" | "reset") {
+    void call<number>("zoom", action)
+      .then(setZoom)
+      .catch((error) => setError(error.message));
   }
   function saveSettings(patch: Record<string, string>) {
     void run(async () => {
@@ -827,7 +860,15 @@ export default function App() {
                 className={`course-nav ${view === "learn" && data.course?.id === course.id ? "selected" : ""}`}
                 onClick={() => openCourse(course.id)}
               >
-                <BookOpen size={15} />
+                <span
+                  className={`course-icon ${course.completed === course.total ? "green" : ""}`}
+                >
+                  {course.completed === course.total ? (
+                    <Check size={15} />
+                  ) : (
+                    <BookOpen size={15} />
+                  )}
+                </span>
                 <span>
                   {course.title}
                   <small>
@@ -884,7 +925,7 @@ export default function App() {
       </aside>
       <div className="workspace">
         <header className="topbar">
-          {view === "learn" && (
+          {
             <button
               className="icon-button study-navigation-toggle"
               aria-label={t("Toggle navigation", "Prepnúť navigáciu")}
@@ -893,7 +934,7 @@ export default function App() {
             >
               <PanelLeft size={18} />
             </button>
-          )}
+          }
           <div className="breadcrumb">
             <BookOpen size={15} />
             <span>
@@ -917,6 +958,37 @@ export default function App() {
             )}
           </div>
           <div className="top-actions">
+            <div
+              className="zoom-controls"
+              aria-label={t("Zoom controls", "Zväčšenie rozhrania")}
+            >
+              <button
+                title={t("Zoom out (Ctrl −)", "Zmenšiť (Ctrl −)")}
+                aria-label={t("Zoom out", "Zmenšiť")}
+                disabled={zoom <= 0.65}
+                onClick={() => adjustZoom("out")}
+              >
+                −
+              </button>
+              <button
+                className="zoom-reset"
+                title={t("Reset zoom (Ctrl 0)", "Obnoviť veľkosť (Ctrl 0)")}
+                onClick={() => adjustZoom("reset")}
+              >
+                {Math.round(zoom * 100)}%
+              </button>
+              <button
+                title={t(
+                  "Zoom in (Ctrl + / Ctrl =)",
+                  "Zväčšiť (Ctrl + / Ctrl =) ",
+                )}
+                aria-label={t("Zoom in", "Zväčšiť")}
+                disabled={zoom >= 2}
+                onClick={() => adjustZoom("in")}
+              >
+                +
+              </button>
+            </div>
             <span className="saved">
               <span />
               {t("Saved locally", "Uložené lokálne")}
@@ -1026,7 +1098,11 @@ export default function App() {
                   </select>
                 </label>
               </header>
-              <div className="normal-messages" ref={scroller}>
+              <div
+                className="normal-messages"
+                ref={scroller}
+                onScroll={chatScroll.onScroll}
+              >
                 {!normal.messages.length && !busy && (
                   <div className="normal-empty">
                     <span>
@@ -1119,6 +1195,7 @@ export default function App() {
                   </article>
                 )}
               </div>
+              {latestButton}
               <form
                 className="normal-composer"
                 onSubmit={(e) => {
@@ -1183,7 +1260,11 @@ export default function App() {
                   value={normalDraft}
                   onChange={(e) => setNormalDraft(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
+                    if (
+                      e.key === "Enter" &&
+                      !e.shiftKey &&
+                      !e.nativeEvent.isComposing
+                    ) {
                       e.preventDefault();
                       void sendNormal();
                     }
@@ -1305,7 +1386,7 @@ export default function App() {
                 <div className="course-grid">
                   {data.courses.map((course) => (
                     <button
-                      className="course-card"
+                      className={`course-card ${course.completed === course.total ? "course-complete" : ""}`}
                       key={course.id}
                       disabled={busy}
                       onClick={() => openCourse(course.id)}
@@ -1324,9 +1405,17 @@ export default function App() {
                         />
                       </div>
                       <div className="card-bottom">
-                        {course.started
-                          ? t("Continue learning", "Pokračovať v štúdiu")
-                          : t("Review learning path", "Prezrieť študijný plán")}
+                        {course.total > 0 && course.completed === course.total
+                          ? t(
+                              "Completed · Review course",
+                              "Dokončený · Prezrieť kurz",
+                            )
+                          : course.started
+                            ? t("Continue learning", "Pokračovať v štúdiu")
+                            : t(
+                                "Review learning path",
+                                "Prezrieť študijný plán",
+                              )}
                         <ArrowRight size={15} />
                       </div>
                     </button>
@@ -1849,7 +1938,11 @@ export default function App() {
                         <p className="objective">{lesson.objective}</p>
                       )}
                     </div>
-                    <div className="messages" ref={scroller}>
+                    <div
+                      className="messages"
+                      ref={scroller}
+                      onScroll={chatScroll.onScroll}
+                    >
                       <div className="message-width">
                         {data.messages.length === 0 && !busy && (
                           <div className="lesson-start">
@@ -1874,11 +1967,23 @@ export default function App() {
                             </button>
                           </div>
                         )}
-                        {data.messages.map((message) => (
+                        {data.messages.map((message, index) => (
                           <article
-                            className={`message ${message.role}`}
+                            className={`message ${message.role} ${index === 0 && message.role === "assistant" ? "initial-explanation" : ""}`}
                             key={message.id}
                           >
+                            {index > 0 &&
+                              index ===
+                                data.messages.findIndex(
+                                  (m) => m.role === "user",
+                                ) && (
+                                <div className="followup-divider">
+                                  {t(
+                                    "Your questions · same lesson",
+                                    "Tvoje otázky · rovnaká lekcia",
+                                  )}
+                                </div>
+                              )}
                             <div className="message-author">
                               {message.role === "assistant" ? (
                                 <>
@@ -1887,7 +1992,12 @@ export default function App() {
                                   </span>
                                   StudyFlow
                                   <span className="muted">
-                                    {t("Tutor", "Tútor")}
+                                    {index === 0
+                                      ? t(
+                                          "Lesson explanation",
+                                          "Vysvetlenie lekcie",
+                                        )
+                                      : t("Tutor", "Tútor")}
                                   </span>
                                 </>
                               ) : (
@@ -1912,7 +2022,7 @@ export default function App() {
                             )}
                           </article>
                         ))}
-                        {busy && (
+                        {studyResponding && (
                           <article className="message assistant">
                             <div className="message-author">
                               <span className="tutor-icon">
@@ -1937,6 +2047,7 @@ export default function App() {
                         )}
                       </div>
                     </div>
+                    {latestButton}
                     <div className="lesson-controls">
                       <div className="controls-width">
                         <div className="quick-actions">
@@ -1945,6 +2056,7 @@ export default function App() {
                               <button
                                 disabled={busy}
                                 key={en}
+                                title={prompt}
                                 onClick={() => chat(prompt, mode)}
                               >
                                 <Icon size={13} />
@@ -2038,7 +2150,11 @@ export default function App() {
                             maxLength={12000}
                             onChange={(e) => setDraft(e.target.value)}
                             onKeyDown={(e) => {
-                              if (e.key === "Enter" && !e.shiftKey) {
+                              if (
+                                e.key === "Enter" &&
+                                !e.shiftKey &&
+                                !e.nativeEvent.isComposing
+                              ) {
                                 e.preventDefault();
                                 if (!busy) chat(draft);
                               }
@@ -2255,20 +2371,65 @@ export default function App() {
                       </span>
                       <strong>{progress}%</strong>
                     </div>
-                    <div className="progress-track">
+                    <div
+                      className={`progress-track ${progress === 100 ? "is-complete" : ""}`}
+                      role="progressbar"
+                      aria-label={t("Course progress", "Pokrok v kurze")}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={progress}
+                    >
                       <span style={{ width: `${progress}%` }} />
                     </div>
+                    <p
+                      className={`path-summary ${progress === 100 ? "green" : ""}`}
+                      aria-live="polite"
+                    >
+                      {progress === 100 ? (
+                        <>
+                          <Check size={14} />
+                          {t(
+                            "Learning Path completed",
+                            "Študijný plán dokončený",
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          {data.course.total - data.course.completed}{" "}
+                          {t("remaining", "zostáva")}
+                          {data.lessons.some(
+                            (l) => l.status === "needs_review",
+                          ) && (
+                            <>
+                              {" "}
+                              ·{" "}
+                              {
+                                data.lessons.filter(
+                                  (l) => l.status === "needs_review",
+                                ).length
+                              }{" "}
+                              {t("to review", "na zopakovanie")}
+                            </>
+                          )}
+                        </>
+                      )}
+                    </p>
                   </div>
                   <ol className="lesson-list">
                     {data.lessons.map((item) => (
                       <li key={item.id}>
                         <button
                           disabled={busy || !data.course?.started}
-                          className={`lesson-open ${item.id === activeId ? "current" : ""} ${item.status === "completed" ? "done" : ""}`}
+                          aria-current={
+                            item.id === activeId ? "step" : undefined
+                          }
+                          className={`lesson-open ${item.id === activeId ? "current" : ""} ${item.status === "completed" ? "done" : ""} ${item.status === "needs_review" ? "needs-review" : ""}`}
                           onClick={() => navigate(item.id)}
                         >
                           <span className="lesson-marker">
-                            {item.status === "completed" ? (
+                            {item.status === "needs_review" ? (
+                              <RotateCcw size={14} />
+                            ) : item.status === "completed" ? (
                               <Check size={13} />
                             ) : (
                               item.position + 1
@@ -2277,13 +2438,20 @@ export default function App() {
                           <span>
                             {item.title}
                             <small>
+                              {item.id === activeId && (
+                                <span className="current-label">
+                                  {t("Current", "Aktuálna")} ·{" "}
+                                </span>
+                              )}
                               {item.status === "completed"
                                 ? t("Completed", "Dokončená")
                                 : item.status === "needs_review"
                                   ? t("Needs review", "Na zopakovanie")
                                   : item.id === activeId
                                     ? t("Learning now", "Práve študuješ")
-                                    : t("Upcoming", "Nasleduje")}
+                                    : item.status === "in_progress"
+                                      ? t("Started", "Rozpracovaná")
+                                      : t("Upcoming", "Nasleduje")}
                             </small>
                           </span>
                           {item.id === activeId && (
@@ -2292,6 +2460,14 @@ export default function App() {
                         </button>
                         <button
                           className="lesson-status-action"
+                          title={
+                            item.status === "completed"
+                              ? t(
+                                  "Mark as incomplete",
+                                  "Označiť ako nedokončené",
+                                )
+                              : t("Mark as completed", "Označiť ako hotové")
+                          }
                           disabled={busy}
                           aria-pressed={item.status === "completed"}
                           aria-label={`${item.status === "completed" ? t("Mark as incomplete", "Označiť ako nedokončené") : t("Mark as completed", "Označiť ako hotové")}: ${item.title}`}
@@ -2318,15 +2494,22 @@ export default function App() {
                           ) : (
                             <Check size={11} />
                           )}
-                          {item.status === "completed"
-                            ? t("Mark as incomplete", "Označiť ako nedokončené")
-                            : t("Mark as completed", "Označiť ako hotové")}
+                          <span className="sr-only">
+                            {item.status === "completed"
+                              ? t(
+                                  "Mark as incomplete",
+                                  "Označiť ako nedokončené",
+                                )
+                              : t("Mark as completed", "Označiť ako hotové")}
+                          </span>
                         </button>
                       </li>
                     ))}
                   </ol>
-                  <div className="source-box">
-                    <h3>{t("Source material", "Zdrojový materiál")}</h3>
+                  <details className="source-box">
+                    <summary>
+                      {t("Source material", "Zdrojový materiál")}
+                    </summary>
                     {data.sources.map((source) => (
                       <div key={source.id}>
                         <button
@@ -2363,7 +2546,7 @@ export default function App() {
                         "Pokrok sa automaticky ukladá v tomto počítači.",
                       )}
                     </p>
-                  </div>
+                  </details>
                 </aside>
               )}
             </div>

@@ -1,5 +1,6 @@
 // Application-owned status/error text. Provider diagnostics remain available verbatim.
 const slovak: Record<string, string> = {
+  "Zoom preference could not be saved.": "Nastavenie veľkosti rozhrania sa nepodarilo uložiť.",
   "Sign-in cancelled.": "Prihlásenie bolo zrušené.",
   "Sign-in timed out after five minutes. Please try again.":
     "Prihlásenie sa po piatich minútach nedokončilo. Skús ho znova.",

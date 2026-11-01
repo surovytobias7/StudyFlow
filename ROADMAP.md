@@ -45,6 +45,7 @@ On 2026-10-30 the user completed OAuth. Authenticated model discovery and a real
 - Localized app-owned connection/import/error notices and attachment warnings; provider diagnostics retain their original error codes. Conversation and course language overrides preserve history/progress. Attachment limits are validated again at the sending IPC boundary.
 
 ## Current tasks
+- UI/UX release 0.1.2: implementation and 34 automated tests plus native UI regression passed; production packaging/in-place update verification is in progress.
 - Windows 0.1.1 build and in-place installation completed. Isolated installed-EXE regression passed for current lesson/path/layout changes; see release verification below.
 - Remaining release verification: full live-AI/native PDF/PPTX file-picker workflow. Prior service-layer live tests passed; the complete installed UI scenario must not yet be claimed passed. The earlier file-picker automation remains unfinished.
 
@@ -70,7 +71,15 @@ On 2026-10-30 the user completed OAuth. Authenticated model discovery and a real
 - Ran installed production EXE from an unrelated temporary directory with no dev server, real main/preload/renderer/SQLite and an isolated fixture profile. Passed manual unopened lesson completion/reversal, bulk confirmation/cancel, 100% completion, full process close/relaunch persistence, reopening with prior statuses, retained conversations/language preference and updated dashboard counts. No credentials or AI calls were used. Evidence: `artifacts/release-verification/local-update-result.json` and installed screenshots.
 - Automatic updates are absent. Future releases currently require running their installer over this installation; data and shortcut targets are preserved.
 
-## Essential release fixes
+## UI/UX release 0.1.2 — 2026-11-01
+- Persisted application zoom with Ctrl Plus/Equal, Minus, 0 and numpad plus/minus; compact toolbar controls. Native keyboard tests cover focused message input, renderer reload and SQLite settings.
+- Wider Normal Chat and Study conversation/input, readable prose/code, compact lesson/language header, multiline composer, responsive navigation drawer and narrow-window path overlay.
+- Reader-aware streaming scroll preserves earlier messages; explicit latest-message action. Initial lesson explanation and follow-up questions are visually separated.
+- Clear current/completed/review/upcoming lesson states, accessible progress values and remaining counts, compact independent completion controls, collapsible source section and completed course indicators. Existing whole-path completion/undo/reopen remains intact.
+- Passed 34 unit/service tests and native Electron UI regression with simulated AI, including language preferences, history, attachments, navigation, individual/bulk completion and database reopen. No new dependencies or billing providers.
+- Layout assertions passed at 1920x1080, 2560x1440, 1366x768 and 125%/150% Electron zoom. Actual Study and Normal Chat screenshots visually inspected. Electron zoom approximates scaling; physical Windows DPI changes were not tested.
+
+## Essential release fixes (retained)
 - Closing the window now cancels AI generation and waits for partial-message persistence before SQLite closes.
 - Credential-protection initialization errors no longer block local snapshots, saved conversations, sources or progress; AI commands report the connection error.
 - Startup failures show a native error dialog instead of silently leaving the user without a window.

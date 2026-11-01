@@ -84,6 +84,8 @@ The following are postponed beyond the first release and do not require extra se
 - One saved ChatGPT registration is supported. Live refresh/revocation and account switching need additional validation/work.
 - Exercise feedback is AI-generated and saved separately; there is no deterministic mathematics checker or code execution.
 - Public caption availability varies; StudyFlow never claims to have watched a video.
-- An installer is built, but installation/uninstallation and packaged import flows need further testing. Native end-to-end UI acceptance is still pending.
+- In-place installation and isolated packaged progress/history regressions are verified. Full live-AI native import acceptance and uninstall testing remain pending.
 
 The sole development roadmap is [ROADMAP.md](ROADMAP.md).
+
+Zoom controls: Ctrl + / Ctrl = to enlarge, Ctrl - to reduce, Ctrl 0 to reset; numpad + and - also work. The toolbar provides the same controls, and the preference is saved locally. Both chats preserve your position while reading older messages and provide a button to return to the latest message.

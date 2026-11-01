@@ -9,7 +9,8 @@ const { randomUUID } = require("node:crypto");
 const root = join(__dirname, "..");
 const temp = mkdtempSync(join(tmpdir(), "studyflow-native-"));
 app.setPath("userData", join(temp, "profile"));
-let window, store;
+let window, store, changeZoom;
+let nextResponse, pauseStream;
 const load = (file) => import(pathToFileURL(join(root, "dist", file)).href);
 const instructions = [];
 const failures = [];
@@ -108,9 +109,10 @@ app
       },
       async generate(_model, prompt, _input, delta) {
         instructions.push(prompt);
-        const response = `${prompt.includes("Respond in Slovak") ? "Slovenská odpoveď" : "English answer"}\n\n**Clear explanation**\n\n\`\`\`typescript\nconst answer = 42;\n\`\`\`\n\n$x^2 + 1$`;
+        const response = nextResponse ?? `${prompt.includes("Respond in Slovak") ? "Slovenská odpoveď" : "English answer"}\n\n**Clear explanation**\n\n\`\`\`typescript\nconst answer = 42;\n\`\`\`\n\n$x^2 + 1$`;
         for (const part of [response.slice(0, 20), response.slice(20)]) {
           delta(part);
+          if (pauseStream) await pauseStream;
           await new Promise((r) => setTimeout(r, 35));
         }
         return response;
@@ -137,6 +139,9 @@ app
       try {
         let result;
         switch (action) {
+          case "zoom":
+            result = changeZoom(value);
+            break;
           case "status":
           case "models":
             result = status;
@@ -237,8 +242,35 @@ app
     window.webContents.on("console-message", (event) => {
       if (event.level === "error") failures.push(event.message);
     });
+    const { installZoom } = await load("zoom.js");
+    changeZoom = installZoom(window.webContents, store.settings().zoomFactor,
+      factor => store.setting("zoomFactor", String(factor)));
     await window.loadFile(join(root, "dist-ui", "index.html"));
     await textButton("Normal chat");
+    await waitFor("!!document.querySelector('.normal-composer textarea')");
+    await evaluate("document.querySelector('.normal-composer textarea').focus()");
+    for (const [keyCode, modifiers, expected] of [
+      ["=", ["control"], 1.1],
+      ["+", ["control", "shift"], 1.2],
+      ["-", ["control"], 1.1],
+      ["0", ["control"], 1],
+      ["numadd", ["control"], 1.1],
+      ["numsub", ["control"], 1],
+    ]) {
+      window.webContents.sendInputEvent({type: "keyDown", keyCode, modifiers});
+      window.webContents.sendInputEvent({type: "keyUp", keyCode, modifiers});
+      await waitFor(`document.querySelector('.zoom-reset').textContent === '${Math.round(expected * 100)}%'`);
+      assert.equal(window.webContents.getZoomFactor(), expected);
+      assert.equal(Number(store.settings().zoomFactor), expected);
+    }
+    await click('[aria-label="Zoom in"]');
+    await waitFor("document.querySelector('.zoom-reset').textContent === '110%'");
+    await window.loadFile(join(root, "dist-ui", "index.html"));
+    await waitFor("document.querySelector('.zoom-reset').textContent === '110%'");
+    assert.equal(window.webContents.getZoomFactor(), 1.1);
+    await click('.zoom-reset');
+    await waitFor("document.querySelector('.zoom-reset').textContent === '100%'");
+    console.info("PASS: real keyboard zoom in/equal/shift-plus/minus/reset while typing, toolbar, persisted preference and renderer reload");
     await send("Explain a vector", 2);
     const first = store.normalSnapshot().conversation.id;
     assert.equal(store.courses().length, 0);
@@ -533,6 +565,27 @@ app
     console.info(
       "PASS: native Electron chat CRUD, optional attachments, Markdown/math/code, both languages, mode isolation, lesson completion/revisit and SQLite reopen/resume. AI was simulated.",
     );
+    // Long history and controlled stream: reading earlier messages must not jump.
+    const scrollChat = store.normalSnapshot().conversation.id;
+    for (let i = 0; i < 12; i++) store.addNormalMessage(scrollChat, i % 2 ? "assistant" : "user", (`Saved paragraph ${i}. `).repeat(70));
+    await window.loadFile(join(root, "dist-ui", "index.html"));
+    await waitFor("document.querySelectorAll('.normal-messages .message').length === 14");
+    assert.equal(await evaluate("(() => { const el=document.querySelector('.normal-messages'); return el.scrollHeight-el.scrollTop-el.clientHeight < 5; })()"), true);
+    let resumeStream;
+    pauseStream = new Promise(resolve => { resumeStream = resolve; });
+    nextResponse = "Streaming reply.\n\n" + "New paragraph with context.\n\n".repeat(80);
+    await fill('.normal-composer textarea', 'Continue explaining');
+    await click('.normal-composer button[type=submit]');
+    await waitFor("!!document.querySelector('.normal-messages .spin')");
+    await evaluate("document.querySelector('.normal-messages').scrollTop = 0");
+    await waitFor("!!document.querySelector('.latest-message')");
+    resumeStream(); pauseStream = undefined;
+    await waitFor("!document.querySelector('.normal-messages .spin') && document.querySelectorAll('.normal-messages .message').length === 16");
+    assert.equal(await evaluate("document.querySelector('.normal-messages').scrollTop"), 0);
+    await click('.latest-message');
+    await waitFor("(() => { const el=document.querySelector('.normal-messages'); return el.scrollHeight-el.scrollTop-el.clientHeight < 5; })()");
+    nextResponse = undefined;
+    console.info("PASS: saved chat opens at latest message, streaming preserves a reader's earlier scroll position, explicit latest-message action works");
   })
   .catch((error) => {
     console.error(error);

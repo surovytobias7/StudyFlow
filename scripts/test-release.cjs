@@ -329,8 +329,13 @@ async function main() {
       "document.querySelector('.path-progress strong').textContent==='100%'",
     );
     await screenshot("installed-path-complete.png");
+    await command("zoom", "in");
+    await command("zoom", "in");
     await close();
     await start();
+    await waitFor("document.querySelector('.zoom-reset')?.textContent==='120%'");
+    await command("zoom", "reset");
+    pass("Zoom preference survives full installed application restart");
     await waitFor(
       "document.querySelector('.path-progress strong')?.textContent==='100%'",
     );

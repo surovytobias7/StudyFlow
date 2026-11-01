@@ -15,6 +15,7 @@ import {
 import { z } from "zod";
 import { acceptance, normalAcceptance } from "./acceptance.js";
 import { importUrl } from "./web-material.js";
+import { installZoom } from "./zoom.js";
 
 app.setName("StudyFlow");
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -105,6 +106,11 @@ else {
         },
       });
       window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+      const changeZoom = installZoom(
+        window.webContents,
+        store.settings().zoomFactor,
+        (factor) => store.setting("zoomFactor", String(factor)),
+      );
       window.webContents.on("will-navigate", (event) => event.preventDefault());
       window.webContents.session.setPermissionRequestHandler(
         (_contents, _permission, callback) => callback(false),
@@ -145,6 +151,11 @@ else {
           try {
             let result;
             switch (action) {
+              case "zoom":
+                result = changeZoom(
+                  z.enum(["in", "out", "reset"]).parse(value),
+                );
+                break;
               case "snapshot": {
                 const snapshot = store.snapshot(
                   typeof value === "string" ? uuid.parse(value) : undefined,
