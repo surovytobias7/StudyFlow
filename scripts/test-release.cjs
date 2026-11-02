@@ -333,7 +333,9 @@ async function main() {
     await command("zoom", "in");
     await close();
     await start();
-    await waitFor("document.querySelector('.zoom-reset')?.textContent==='120%'");
+    await waitFor(
+      "document.querySelector('.zoom-reset')?.textContent==='120%'",
+    );
     await command("zoom", "reset");
     pass("Zoom preference survives full installed application restart");
     await waitFor(
@@ -503,9 +505,24 @@ async function main() {
   pass("Follow-up example stays within the current lesson");
   await textButton("Try an exercise");
   await waitFor(
-    "document.querySelectorAll('.messages .message').length===5&&!document.querySelector('.messages .spin')",
+    "document.querySelectorAll('.quiz-option').length===4&&!document.querySelector('.quiz-loading')",
+    240000,
   );
-  pass("Optional exercise is generated without requiring it for progression");
+  assert.equal(
+    await client.evaluate("document.querySelector('.quiz-submit').disabled"),
+    true,
+  );
+  await click(".quiz-option", 0);
+  await click(".quiz-submit");
+  await waitFor(
+    "!!document.querySelector('.quiz-feedback')&&!document.querySelector('.quiz-loading')",
+  );
+  assert.equal((await command("snapshot")).course.completed, 0);
+  await screenshot("live-interactive-quiz.png");
+  await click('[aria-label="Close quiz"]');
+  pass(
+    "Optional interactive A-D exercise is independently checked, submitted and explained without completing the lesson",
+  );
   await click(".next-button");
   await waitFor(
     `document.querySelector('.path-progress strong')?.textContent===${JSON.stringify(Math.round(100 / study.course.total) + "%")}`,
@@ -526,7 +543,7 @@ async function main() {
   );
   await click(".lesson-open", 0);
   await waitFor(
-    "document.querySelectorAll('.messages .message').length===5&&!document.querySelector('.messages .spin')",
+    "document.querySelectorAll('.messages .message').length===3&&!document.querySelector('.messages .spin')",
   );
   assert.equal((await command("snapshot")).lessons[0].status, "completed");
   await click(".lesson-open", 1);
@@ -581,6 +598,100 @@ async function main() {
   await waitFor("document.querySelectorAll('.course-card').length===1");
   pass(
     "Slovak interface switching, dashboard and navigation work in the installed production app",
+  );
+  await textButton("Bežný chat");
+  await click(".new-button");
+  await textButton("Priložiť");
+  await pick(pdf);
+  await fill(
+    ".normal-composer textarea",
+    "Summarize page 1 of the attached PDF in two short sentences.",
+  );
+  await click(".normal-composer button[type=submit]");
+  await waitFor(
+    "document.querySelectorAll('.normal-messages .message').length===2&&!document.querySelector('.normal-messages .spin')",
+  );
+  const documentChat = (await command("normalSnapshot")).conversation.id;
+  await fill(
+    ".normal-composer textarea",
+    "Explain that document more simply. Do not create a course.",
+  );
+  await click(".normal-composer button[type=submit]");
+  await waitFor(
+    "document.querySelectorAll('.normal-messages .message').length===4&&!document.querySelector('.normal-messages .spin')",
+  );
+  assert.equal((await command("snapshot")).courses.length, 1);
+  await fill(
+    ".normal-composer textarea",
+    "Search the web for the current stable Python version at python.org/downloads and cite the official source.",
+  );
+  await click(".normal-composer button[type=submit]");
+  await waitFor(
+    "document.querySelectorAll('.normal-messages .message').length===6&&!document.querySelector('.normal-messages .spin')",
+  );
+  assert.match(
+    (await command("normalSnapshot")).messages.at(-1).content,
+    /\*\*Web\*\*/,
+  );
+  await waitFor(
+    "!!document.querySelector('.normal-messages a.source-link[href^=\"https://\"]')",
+  );
+  await screenshot("live-document-web-chat.png");
+  pass(
+    "Packaged PDF chat, saved-document follow-up and actual web_search with clickable official citations",
+  );
+  await textButton("Študijný režim");
+  await click(".new-button");
+  await fill("#study-focus", "Teach only method overriding and polymorphism");
+  await click(".study-scope summary");
+  await fill(".scope-range label:nth-of-type(1) input", "5");
+  await fill(".scope-range label:nth-of-type(2) input", "5");
+  await click(".upload-zone");
+  await pick(path.join(root, "fixtures", "oop-acceptance.pptx"));
+  await waitFor(
+    "document.querySelectorAll('.plan-editor li').length>=1",
+    120000,
+  );
+  const focused = await command("snapshot");
+  assert.ok(
+    focused.lessons.every((lesson) =>
+      lesson.references.every((ref) => ref === "Slide 5"),
+    ),
+  );
+  await textButton("Začať štúdium");
+  await waitFor(
+    "document.querySelectorAll('.messages .message').length===1&&!document.querySelector('.messages .spin')",
+  );
+  await fill(
+    ".composer textarea",
+    "Give one small example of this lesson only.",
+  );
+  await click(".composer button[type=submit]");
+  await waitFor(
+    "document.querySelectorAll('.messages .message').length===3&&!document.querySelector('.messages .spin')",
+  );
+  assert.equal(
+    (await command("snapshot")).course.activeLessonId,
+    focused.lessons[0].id,
+  );
+  await screenshot("live-focused-learning.png");
+  await close();
+  await start();
+  await waitFor("document.querySelectorAll('.messages .message').length===3");
+  assert.equal((await command("snapshot")).course.id, focused.course.id);
+  assert.ok((await command("snapshot")).settings[`scope:${focused.course.id}`]);
+  await command("normalSelect", documentChat);
+  // Exercise UI mode switching. Renderer navigation/reload is deliberately blocked.
+  await textButton("Bežný chat");
+  await waitFor(
+    "document.querySelectorAll('.normal-messages .message').length===6",
+  );
+  assert.equal(
+    (await command("normalSnapshot")).messages[0].attachments.length,
+    1,
+  );
+  pass(
+    "Packaged focused slide range, lesson follow-up, full-process restart and retained document/citation history",
   );
   await close();
   await fs.writeFile(

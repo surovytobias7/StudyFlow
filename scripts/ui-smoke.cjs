@@ -1,7 +1,13 @@
 // Isolated native renderer/SQLite integration test. No real credentials or AI calls.
 const { app, BrowserWindow, ipcMain } = require("electron");
 const assert = require("node:assert/strict");
-const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = require("node:fs");
+const {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  readFileSync,
+} = require("node:fs");
 const { join } = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { tmpdir } = require("node:os");
@@ -11,8 +17,11 @@ const temp = mkdtempSync(join(tmpdir(), "studyflow-native-"));
 app.setPath("userData", join(temp, "profile"));
 let window, store, changeZoom;
 let nextResponse, pauseStream;
+let quizData;
 const load = (file) => import(pathToFileURL(join(root, "dist", file)).href);
 const instructions = [];
+const generationOptions = [];
+const openedLinks = [];
 const failures = [];
 async function evaluate(script) {
   try {
@@ -107,9 +116,26 @@ app
       async refreshModels() {
         return status;
       },
-      async generate(_model, prompt, _input, delta) {
+      async generate(_model, prompt, _input, delta, options) {
         instructions.push(prompt);
-        const response = nextResponse ?? `${prompt.includes("Respond in Slovak") ? "Slovenská odpoveď" : "English answer"}\n\n**Clear explanation**\n\n\`\`\`typescript\nconst answer = 42;\n\`\`\`\n\n$x^2 + 1$`;
+        generationOptions.push(options);
+        if (
+          prompt.includes("assessment designer") ||
+          prompt.startsWith("Independently audit")
+        )
+          return (
+            quizData ??
+            readFileSync(join(root, "fixtures", "quiz.json"), "utf8")
+          );
+        if (prompt.startsWith("Evaluate this student's answer"))
+          return JSON.stringify({
+            correct: true,
+            feedback:
+              "The code follows the rubric. This is a review; no code was executed.",
+          });
+        const response =
+          nextResponse ??
+          `${prompt.includes("Respond in Slovak") ? "Slovenská odpoveď" : "English answer"}\n\n**Clear explanation**\n\n\`\`\`typescript\nconst answer = 42;\n\`\`\`\n\n$x^2 + 1$`;
         for (const part of [response.slice(0, 20), response.slice(20)]) {
           delta(part);
           if (pauseStream) await pauseStream;
@@ -139,6 +165,39 @@ app
       try {
         let result;
         switch (action) {
+          case "quizList":
+            result = learning.quizzes.list(value);
+            break;
+          case "quizGet":
+            result = learning.quizzes.view(value);
+            break;
+          case "quizGenerate":
+            result = await learning.generateQuiz(
+              value.target,
+              value.request,
+              value.attachments,
+            );
+            break;
+          case "quizAnswer":
+            result = await learning.answerQuiz(
+              value.id,
+              value.index,
+              value.answer,
+            );
+            break;
+          case "quizNext":
+            result = learning.quizzes.next(value.id, value.index);
+            break;
+          case "openLink":
+            openedLinks.push(value);
+            result = true;
+            break;
+          case "transcript":
+            result = await learning.plan(
+              learning.transcript(value.title, value.text),
+              value.scope,
+            );
+            break;
           case "zoom":
             result = changeZoom(value);
             break;
@@ -186,6 +245,7 @@ app
               value.id,
               value.question,
               value.attachments,
+              value.webSearch,
             );
             break;
           case "normalAttach":
@@ -196,6 +256,7 @@ app
               value.lessonId,
               value.question,
               value.mode,
+              value.webSearch,
             );
             break;
           case "editPlan":
@@ -243,12 +304,17 @@ app
       if (event.level === "error") failures.push(event.message);
     });
     const { installZoom } = await load("zoom.js");
-    changeZoom = installZoom(window.webContents, store.settings().zoomFactor,
-      factor => store.setting("zoomFactor", String(factor)));
+    changeZoom = installZoom(
+      window.webContents,
+      store.settings().zoomFactor,
+      (factor) => store.setting("zoomFactor", String(factor)),
+    );
     await window.loadFile(join(root, "dist-ui", "index.html"));
     await textButton("Normal chat");
     await waitFor("!!document.querySelector('.normal-composer textarea')");
-    await evaluate("document.querySelector('.normal-composer textarea').focus()");
+    await evaluate(
+      "document.querySelector('.normal-composer textarea').focus()",
+    );
     for (const [keyCode, modifiers, expected] of [
       ["=", ["control"], 1.1],
       ["+", ["control", "shift"], 1.2],
@@ -257,20 +323,34 @@ app
       ["numadd", ["control"], 1.1],
       ["numsub", ["control"], 1],
     ]) {
-      window.webContents.sendInputEvent({type: "keyDown", keyCode, modifiers});
-      window.webContents.sendInputEvent({type: "keyUp", keyCode, modifiers});
-      await waitFor(`document.querySelector('.zoom-reset').textContent === '${Math.round(expected * 100)}%'`);
+      window.webContents.sendInputEvent({
+        type: "keyDown",
+        keyCode,
+        modifiers,
+      });
+      window.webContents.sendInputEvent({ type: "keyUp", keyCode, modifiers });
+      await waitFor(
+        `document.querySelector('.zoom-reset').textContent === '${Math.round(expected * 100)}%'`,
+      );
       assert.equal(window.webContents.getZoomFactor(), expected);
       assert.equal(Number(store.settings().zoomFactor), expected);
     }
     await click('[aria-label="Zoom in"]');
-    await waitFor("document.querySelector('.zoom-reset').textContent === '110%'");
+    await waitFor(
+      "document.querySelector('.zoom-reset').textContent === '110%'",
+    );
     await window.loadFile(join(root, "dist-ui", "index.html"));
-    await waitFor("document.querySelector('.zoom-reset').textContent === '110%'");
+    await waitFor(
+      "document.querySelector('.zoom-reset').textContent === '110%'",
+    );
     assert.equal(window.webContents.getZoomFactor(), 1.1);
-    await click('.zoom-reset');
-    await waitFor("document.querySelector('.zoom-reset').textContent === '100%'");
-    console.info("PASS: real keyboard zoom in/equal/shift-plus/minus/reset while typing, toolbar, persisted preference and renderer reload");
+    await click(".zoom-reset");
+    await waitFor(
+      "document.querySelector('.zoom-reset').textContent === '100%'",
+    );
+    console.info(
+      "PASS: real keyboard zoom in/equal/shift-plus/minus/reset while typing, toolbar, persisted preference and renderer reload",
+    );
     await send("Explain a vector", 2);
     const first = store.normalSnapshot().conversation.id;
     assert.equal(store.courses().length, 0);
@@ -310,6 +390,9 @@ app
     assert.equal(store.normalSnapshot(second).conversation, null);
     await textButton("Attach");
     await waitFor("!!document.querySelector('.attachment-list')");
+    await click(".web-toggle");
+    nextResponse =
+      "Document explanation.\n\n**Web**\n\n[Verified fixture source](https://example.org/reference)";
     await click(".normal-composer button[type=submit]");
     await waitFor(
       "document.querySelectorAll('.normal-messages .message').length === 4 && !document.querySelector('.normal-messages .spin')",
@@ -317,6 +400,23 @@ app
     assert.equal(
       store.normalMessages(first)[2].attachments[0].name,
       attachment.name,
+    );
+    nextResponse = undefined;
+    assert.deepEqual(generationOptions.at(-1), { webSearch: "auto" });
+    await waitFor("!!document.querySelector('.conversation-documents')");
+    await evaluate(
+      "new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))",
+    );
+    writeFileSync(
+      join(root, "artifacts", "documents-chat.png"),
+      (await window.webContents.capturePage()).toPNG(),
+    );
+    await click(".normal-messages a.source-link");
+    await waitFor("!document.querySelector('[role=alert]')");
+    assert.equal(openedLinks.at(-1), "https://example.org/reference");
+    await click(".web-toggle");
+    console.info(
+      "PASS: saved document tray, web toggle, real source anchor and external-link IPC (simulated AI)",
     );
     await click(".normal-messages .attachment-chip");
     await waitFor("!!document.querySelector('.source-dialog[open]')");
@@ -567,25 +667,210 @@ app
     );
     // Long history and controlled stream: reading earlier messages must not jump.
     const scrollChat = store.normalSnapshot().conversation.id;
-    for (let i = 0; i < 12; i++) store.addNormalMessage(scrollChat, i % 2 ? "assistant" : "user", (`Saved paragraph ${i}. `).repeat(70));
+    for (let i = 0; i < 12; i++)
+      store.addNormalMessage(
+        scrollChat,
+        i % 2 ? "assistant" : "user",
+        `Saved paragraph ${i}. `.repeat(70),
+      );
     await window.loadFile(join(root, "dist-ui", "index.html"));
-    await waitFor("document.querySelectorAll('.normal-messages .message').length === 14");
-    assert.equal(await evaluate("(() => { const el=document.querySelector('.normal-messages'); return el.scrollHeight-el.scrollTop-el.clientHeight < 5; })()"), true);
+    await waitFor(
+      "document.querySelectorAll('.normal-messages .message').length === 14",
+    );
+    assert.equal(
+      await evaluate(
+        "(() => { const el=document.querySelector('.normal-messages'); return el.scrollHeight-el.scrollTop-el.clientHeight < 5; })()",
+      ),
+      true,
+    );
     let resumeStream;
-    pauseStream = new Promise(resolve => { resumeStream = resolve; });
-    nextResponse = "Streaming reply.\n\n" + "New paragraph with context.\n\n".repeat(80);
-    await fill('.normal-composer textarea', 'Continue explaining');
-    await click('.normal-composer button[type=submit]');
+    pauseStream = new Promise((resolve) => {
+      resumeStream = resolve;
+    });
+    nextResponse =
+      "Streaming reply.\n\n" + "New paragraph with context.\n\n".repeat(80);
+    await fill(".normal-composer textarea", "Continue explaining");
+    await click(".normal-composer button[type=submit]");
     await waitFor("!!document.querySelector('.normal-messages .spin')");
     await evaluate("document.querySelector('.normal-messages').scrollTop = 0");
     await waitFor("!!document.querySelector('.latest-message')");
-    resumeStream(); pauseStream = undefined;
-    await waitFor("!document.querySelector('.normal-messages .spin') && document.querySelectorAll('.normal-messages .message').length === 16");
-    assert.equal(await evaluate("document.querySelector('.normal-messages').scrollTop"), 0);
-    await click('.latest-message');
-    await waitFor("(() => { const el=document.querySelector('.normal-messages'); return el.scrollHeight-el.scrollTop-el.clientHeight < 5; })()");
+    resumeStream();
+    pauseStream = undefined;
+    await waitFor(
+      "!document.querySelector('.normal-messages .spin') && document.querySelectorAll('.normal-messages .message').length === 16",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('.normal-messages').scrollTop"),
+      0,
+    );
+    await click(".latest-message");
+    await waitFor(
+      "(() => { const el=document.querySelector('.normal-messages'); return el.scrollHeight-el.scrollTop-el.clientHeight < 5; })()",
+    );
     nextResponse = undefined;
-    console.info("PASS: saved chat opens at latest message, streaming preserves a reader's earlier scroll position, explicit latest-message action works");
+    console.info(
+      "PASS: saved chat opens at latest message, streaming preserves a reader's earlier scroll position, explicit latest-message action works",
+    );
+    store.setting("language", "en");
+    store.setting("theme", "dark");
+    await window.loadFile(join(root, "dist-ui", "index.html"));
+    await textButton("Study mode");
+    await click(".new-button");
+    await fill("#study-focus", "Only polymorphism");
+    await click(".study-scope summary");
+    await fill(".scope-range input", "2");
+    await evaluate(
+      "(()=>{const input=document.querySelectorAll('.scope-range input')[1];Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'2');input.dispatchEvent(new Event('input',{bubbles:true}));})()",
+    );
+    await fill('.import-page input[maxlength="180"]', "Focused OOP");
+    await fill(
+      ".import-page > label textarea",
+      "[Slide 1]\nClasses and objects\n[Slide 2]\nPolymorphism and virtual methods",
+    );
+    await evaluate(
+      "new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))",
+    );
+    writeFileSync(
+      join(root, "artifacts", "focused-learning-form.png"),
+      (await window.webContents.capturePage()).toPNG(),
+    );
+    nextResponse = JSON.stringify({
+      title: "Focused OOP",
+      lessons: [
+        {
+          title: "Polymorphism",
+          objective: "Virtual methods",
+          references: ["Slide 2"],
+        },
+      ],
+    });
+    await textButton("Build learning path");
+    await waitFor("document.querySelectorAll('.plan-editor li').length===1");
+    nextResponse = undefined;
+    assert.deepEqual(
+      JSON.parse(store.settings()[`scope:${store.snapshot().course.id}`]),
+      { instructions: "Only polymorphism", from: 2, to: 2 },
+    );
+    assert.equal(store.courses().length, 2);
+    await textButton("Start learning");
+    await waitFor(
+      "document.querySelectorAll('.messages .message').length===1 && !document.querySelector('.messages .spin')",
+    );
+    assert.match(instructions.at(-1), /Only polymorphism/);
+    assert.equal(
+      await evaluate(
+        "document.querySelector('.web-toggle').getAttribute('aria-pressed')",
+      ),
+      "false",
+    );
+    console.info(
+      "PASS: focused learning form, selected range, plan preview, start lesson and independent persisted scope",
+    );
+    const quizProgress = store.snapshot().course.completed;
+    await textButton("Quiz");
+    await fill("#quiz-request", "Give me 2 multiple-choice questions.");
+    await textButton("Generate questions");
+    await waitFor(
+      "document.querySelectorAll('.quiz-option').length===4 && !document.querySelector('.quiz-loading')",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('.quiz-submit').disabled"),
+      true,
+    );
+    assert.equal(
+      await evaluate(
+        "document.querySelector('.quiz-dialog').textContent.includes('concrete instance')",
+      ),
+      false,
+    );
+    await evaluate(
+      "new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))",
+    );
+    assert.ok(
+      await evaluate(
+        "document.querySelector('.quiz-progress').getBoundingClientRect().height >= 4",
+      ),
+    );
+    writeFileSync(
+      join(root, "artifacts", "quiz-question.png"),
+      (await window.webContents.capturePage()).toPNG(),
+    );
+    await click(".quiz-option", 1);
+    await click(".quiz-submit");
+    await waitFor(
+      "!!document.querySelector('.quiz-feedback.incorrect') && !document.querySelector('.quiz-loading')",
+    );
+    await click('[aria-label="Close quiz"]');
+    await window.loadFile(join(root, "dist-ui", "index.html"));
+    await waitFor("!!document.querySelector('.lesson-heading')");
+    await textButton("Quiz");
+    await waitFor(
+      "!!document.querySelector('.quiz-feedback.incorrect') && !document.querySelector('.quiz-loading')",
+    );
+    await click(".quiz-next");
+    await waitFor(
+      "document.querySelectorAll('.quiz-option').length===4 && !document.querySelector('.quiz-feedback')",
+    );
+    await click(".quiz-option", 2);
+    await click(".quiz-submit");
+    await waitFor(
+      "!!document.querySelector('.quiz-feedback.correct') && !document.querySelector('.quiz-loading')",
+    );
+    await click(".quiz-next");
+    await waitFor(
+      "document.querySelector('.quiz-score')?.textContent==='50%' && !document.querySelector('.quiz-loading')",
+    );
+    await click(".quiz-review.incorrect summary");
+    await evaluate(
+      "new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))",
+    );
+    writeFileSync(
+      join(root, "artifacts", "quiz-results.png"),
+      (await window.webContents.capturePage()).toPNG(),
+    );
+    assert.equal(store.snapshot().course.completed, quizProgress);
+    await textButton("Create another quiz");
+    const written = JSON.parse(
+      readFileSync(join(root, "fixtures", "quiz.json"), "utf8"),
+    );
+    written.questions = [
+      {
+        ...written.questions[0],
+        type: "coding",
+        options: [],
+        correctOption: null,
+        optionExplanations: [],
+        sampleAnswer: "class Student {}",
+        rubric: "Define a C# class",
+      },
+    ];
+    quizData = JSON.stringify(written);
+    await fill("#quiz-request", "Give one coding exercise");
+    await textButton("Generate questions");
+    await waitFor(
+      "!!document.querySelector('.quiz-written textarea') && !document.querySelector('.quiz-loading')",
+    );
+    await fill(".quiz-written textarea", "class Student {}");
+    await click(".quiz-submit");
+    await waitFor(
+      "!!document.querySelector('.quiz-feedback.correct') && !document.querySelector('.quiz-loading')",
+    );
+    await click('[aria-label="Close quiz"]');
+    quizData = undefined;
+    await textButton("Normal chat");
+    await fill(
+      ".normal-composer textarea",
+      "Give me 2 questions about this topic.",
+    );
+    await click(".normal-composer button[type=submit]");
+    await waitFor(
+      "document.querySelectorAll('.quiz-option').length===4 && !document.querySelector('.quiz-loading')",
+    );
+    assert.equal(store.courses().length, 2);
+    await click('[aria-label="Close quiz"]');
+    console.info(
+      "PASS: interactive A-D quiz, hidden answers, wrong/correct feedback, persisted resume, next, score/mistake review, written code feedback, natural-language Normal Chat quiz and unchanged lesson progress",
+    );
   })
   .catch((error) => {
     console.error(error);

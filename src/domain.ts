@@ -88,7 +88,7 @@ export const attachmentSchema = z
   .object({
     name: z.string().min(1).max(240),
     kind: z.string().min(1).max(20),
-    text: z.string().max(100_000),
+    text: z.string().max(600_000),
     warning: z.string().max(2000).optional(),
     images: z
       .array(
@@ -108,6 +108,11 @@ export const attachmentSchema = z
 export const attachmentsSchema = z
   .array(attachmentSchema)
   .max(8)
+  .refine(
+    (items) =>
+      items.reduce((sum, item) => sum + item.text.length, 0) <= 1_200_000,
+    "Attachments are too large to send together. Remove some images or attach a smaller file.",
+  )
   .refine(
     (items) =>
       items.reduce(

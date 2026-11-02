@@ -1,6 +1,30 @@
 // Application-owned status/error text. Provider diagnostics remain available verbatim.
 const slovak: Record<string, string> = {
-  "Zoom preference could not be saved.": "Nastavenie veľkosti rozhrania sa nepodarilo uložiť.",
+  "Generating quiz questions…": "Vytváram otázky kvízu…",
+  "Checking question quality…": "Overujem kvalitu otázok…",
+  "Quiz not found.": "Kvíz sa nenašiel.",
+  "The tutor returned an invalid quiz. Please try again.": "Tútor vrátil neplatný kvíz. Skús ho vytvoriť znova.",
+  "The quiz question changed. Reopen the quiz.": "Otázka kvízu sa zmenila. Otvor kvíz znova.",
+  "Choose an answer before submitting.": "Pred odovzdaním vyber odpoveď.",
+  "Write an answer before submitting.": "Pred odovzdaním napíš odpoveď.",
+  "Submit your answer before continuing.": "Pred pokračovaním odovzdaj odpoveď.",
+  "The tutor returned invalid exercise feedback. Try submitting again.": "Tútor vrátil neplatné hodnotenie. Skús odpoveď odovzdať znova.",
+  "Enter a valid page or slide range.":
+    "Zadaj platný rozsah strán alebo snímok.",
+  "The requested pages or slides were not found in this document.":
+    "Požadované strany alebo snímky sa v dokumente nenašli.",
+  "The requested topic was not found in this document. Try a different topic or range.":
+    "Požadovaná téma sa v dokumente nenašla. Skús inú tému alebo rozsah.",
+  "The full extracted text is saved. Relevant excerpts are selected for each question; specify a page, slide or topic for detail. Some images may be omitted.":
+    "Celý extrahovaný text je uložený. Pre každú otázku sa vyberú relevantné úryvky; pre podrobnosti uveď stranu, snímku alebo tému. Niektoré obrázky môžu byť vynechané.",
+  "Web search is unavailable for this model or account, or the request failed. No alternate billing was used.":
+    "Webové vyhľadávanie nie je dostupné pre tento model alebo účet, alebo požiadavka zlyhala. Nebola použitá iná platená služba.",
+  "The model did not perform the requested web search. No search results were verified.":
+    "Model nevykonal požadované webové vyhľadávanie. Žiadne výsledky vyhľadávania neboli overené.",
+  "Only HTTP and HTTPS source links can be opened.":
+    "Otvárať možno iba odkazy HTTP a HTTPS.",
+  "Zoom preference could not be saved.":
+    "Nastavenie veľkosti rozhrania sa nepodarilo uložiť.",
   "Sign-in cancelled.": "Prihlásenie bolo zrušené.",
   "Sign-in timed out after five minutes. Please try again.":
     "Prihlásenie sa po piatich minútach nedokončilo. Skús ho znova.",
@@ -143,7 +167,7 @@ const slovak: Record<string, string> = {
 };
 export function localizeMessage(text: string, language: string): string {
   if (
-    /^(OpenAI HTTP 429|Inference stopped:.*(?:usage|rate_limit|quota))/i.test(
+    /(OpenAI HTTP 429|Inference stopped:.*(?:usage|rate_limit|quota))/i.test(
       text,
     )
   )

@@ -7,7 +7,67 @@ import {
   consumeStream,
   consumeResponse,
   SCOPES,
+  citedText,
 } from "./protocol.js";
+
+test("real subscription stream item citations survive empty terminal output and unsafe links are rejected", async () => {
+  const annotation = {
+    type: "url_citation",
+    start_index: 7,
+    end_index: 13,
+    url: "https://example.org/reference",
+    title: "Official source",
+  };
+  let evidence: unknown;
+  const result = await consumeStream(
+    stream(
+      event({ type: "response.web_search_call.completed" }) +
+        event({ type: "response.output_text.delta", delta: "Answer [cite]" }) +
+        event({
+          type: "response.output_item.done",
+          output_index: 1,
+          item: {
+            type: "message",
+            content: [
+              {
+                type: "output_text",
+                text: "Answer [cite]",
+                annotations: [annotation],
+              },
+            ],
+          },
+        }) +
+        event({ type: "response.completed", response: { output: [] } }),
+    ),
+    () => {},
+    {
+      requireSearch: true,
+      evidence: (value) => {
+        evidence = value;
+      },
+    },
+  );
+  assert.deepEqual(evidence, { calls: 1, citations: 1 });
+  assert.match(result, /Answer  \[1\]\(https:\/\/example.org\/reference\)/);
+  assert.match(result, /\*\*Web\*\*/);
+  assert.equal(
+    citedText("Hello", [{ ...annotation, url: "javascript:alert(1)" }]).count,
+    0,
+  );
+  await assert.rejects(
+    consumeStream(
+      stream(
+        event({
+          type: "response.output_text.delta",
+          delta: "Made up results",
+        }) + event({ type: "response.completed" }),
+      ),
+      () => {},
+      { requireSearch: true },
+    ),
+    /did not perform/,
+  );
+});
 
 const pending = () =>
   authorization("urn:uuid:host", "http://127.0.0.1:12345/auth/callback");

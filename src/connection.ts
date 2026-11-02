@@ -11,7 +11,9 @@ import {
   validateCallback,
   responseBody,
   consumeResponse,
+  type StreamOptions,
 } from "./protocol.js";
+import type { GenerationOptions } from "./search.js";
 
 type Registration = {
   clientId: string;
@@ -93,9 +95,9 @@ export class Connection {
     }
   }
 
-  private async request(url: string, init?: RequestInit) {
+  private async request(url: string, init?: RequestInit, timeoutMs = 45_000) {
     const signal = AbortSignal.any([
-      AbortSignal.timeout(45_000),
+      AbortSignal.timeout(timeoutMs),
       ...(this.abort ? [this.abort.signal] : []),
     ]);
     return net.fetch(url, { ...init, signal, redirect: "error" });
@@ -370,6 +372,7 @@ export class Connection {
     instructions: string,
     input: unknown[],
     delta: (text: string) => void,
+    options: GenerationOptions & Pick<StreamOptions, "evidence"> = {},
   ) {
     // The renderer discovers models on startup; the first chat can arrive before
     // that finishes. Join discovery rather than rejecting the user's question.
@@ -379,23 +382,48 @@ export class Connection {
       if (!this.models.some((m) => m.slug === model))
         throw new Error("Select an available model in Settings.");
       const token = await this.accessToken();
-      const response = await this.request(`${API}/responses`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-          Accept: "text/event-stream",
+      const response = await this.request(
+        `${API}/responses`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            Accept: "text/event-stream",
+          },
+          body: JSON.stringify({
+            model,
+            instructions,
+            input,
+            store: false,
+            stream: true,
+            ...(options.webSearch
+              ? {
+                  tools: [{ type: "web_search" }],
+                  ...(options.webSearch === "required"
+                    ? { tool_choice: { type: "web_search" } }
+                    : {}),
+                }
+              : {}),
+          }),
         },
-        body: JSON.stringify({
-          model,
-          instructions,
-          input,
-          store: false,
-          stream: true,
-        }),
+        180_000,
+      );
+      if (!response.ok) {
+        try {
+          await this.json(response);
+        } catch (error) {
+          if (options.webSearch)
+            throw new Error(
+              `Web search is unavailable for this model or account, or the request failed. No alternate billing was used. ${(error as Error).message}`,
+            );
+          throw error;
+        }
+      }
+      return consumeResponse(response, delta, {
+        requireSearch: options.webSearch === "required",
+        evidence: options.evidence,
       });
-      if (!response.ok) await this.json(response);
-      return consumeResponse(response, delta);
     });
   }
 

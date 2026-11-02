@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, shell } from "electron";
 import { fileURLToPath } from "node:url";
 import { Connection } from "./connection.js";
 import { join } from "node:path";
@@ -16,6 +16,11 @@ import { z } from "zod";
 import { acceptance, normalAcceptance } from "./acceptance.js";
 import { importUrl } from "./web-material.js";
 import { installZoom } from "./zoom.js";
+import { studyScopeSchema } from "./document-context.js";
+import { searchAcceptance } from "./search-acceptance.js";
+import { documentAcceptance } from "./document-acceptance.js";
+import { quizTargetSchema } from "./quiz.js";
+import { quizAcceptance } from "./quiz-acceptance.js";
 
 app.setName("StudyFlow");
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -41,13 +46,22 @@ else {
       }
       if (
         process.argv.includes("--acceptance") ||
-        process.argv.includes("--acceptance-normal")
+        process.argv.includes("--acceptance-normal") ||
+        process.argv.includes("--acceptance-web") ||
+        process.argv.includes("--acceptance-documents") ||
+        process.argv.includes("--acceptance-quizzes")
       ) {
         try {
           if (initError) throw new Error(initError);
-          await (process.argv.includes("--acceptance-normal")
-            ? normalAcceptance(connection)
-            : acceptance(connection));
+          await (process.argv.includes("--acceptance-quizzes")
+            ? quizAcceptance(connection)
+            : process.argv.includes("--acceptance-documents")
+              ? documentAcceptance(connection)
+              : process.argv.includes("--acceptance-web")
+                ? searchAcceptance(connection)
+                : process.argv.includes("--acceptance-normal")
+                  ? normalAcceptance(connection)
+                  : acceptance(connection));
         } catch (error) {
           console.error((error as Error).message);
           process.exitCode = 1;
@@ -138,6 +152,7 @@ else {
             [
               "chat",
               "normalChat",
+              "quizGenerate",
               "import",
               "transcript",
               "url",
@@ -151,6 +166,64 @@ else {
           try {
             let result;
             switch (action) {
+              case "quizList":
+                result = learning.quizzes.list(quizTargetSchema.parse(value));
+                break;
+              case "quizGet":
+                result = learning.quizzes.view(uuid.parse(value));
+                break;
+              case "quizGenerate": {
+                const input = z
+                  .object({
+                    target: quizTargetSchema,
+                    request: z.string().max(4000),
+                    attachments: attachmentsSchema.default([]),
+                  })
+                  .parse(value);
+                result = await learning.generateQuiz(
+                  input.target,
+                  input.request,
+                  input.attachments,
+                );
+                break;
+              }
+              case "quizAnswer": {
+                const input = z
+                  .object({
+                    id: uuid,
+                    index: z.number().int().min(0).max(9),
+                    answer: z.string().min(1).max(8000),
+                  })
+                  .parse(value);
+                result = await learning.answerQuiz(
+                  input.id,
+                  input.index,
+                  input.answer,
+                );
+                break;
+              }
+              case "quizNext": {
+                learning.assertIdle();
+                const input = z
+                  .object({ id: uuid, index: z.number().int().min(0).max(9) })
+                  .parse(value);
+                result = learning.quizzes.next(input.id, input.index);
+                break;
+              }
+              case "openLink": {
+                const url = new URL(z.string().url().max(4000).parse(value));
+                if (
+                  !["https:", "http:"].includes(url.protocol) ||
+                  url.username ||
+                  url.password
+                )
+                  throw new Error(
+                    "Only HTTP and HTTPS source links can be opened.",
+                  );
+                await shell.openExternal(url.href);
+                result = true;
+                break;
+              }
               case "zoom":
                 result = changeZoom(
                   z.enum(["in", "out", "reset"]).parse(value),
@@ -224,12 +297,14 @@ else {
                     id: uuid,
                     question: z.string().max(12000),
                     attachments: attachmentsSchema,
+                    webSearch: z.boolean().default(false),
                   })
                   .parse(value);
                 result = await learning.normalChat(
                   input.id,
                   input.question,
                   input.attachments,
+                  input.webSearch,
                 );
                 break;
               }
@@ -273,13 +348,13 @@ else {
                   attachments.push({
                     name: material.name,
                     kind: material.kind,
-                    text: material.text.slice(0, 100_000),
+                    text: material.text,
                     images,
                     warning: [
                       material.warning,
                       material.text.length > 30_000 ||
                       images.length < material.images.length
-                        ? "Only part of this attachment fits in the chat context. Use Study Mode for the full document."
+                        ? "The full extracted text is saved. Relevant excerpts are selected for each question; specify a page, slide or topic for detail. Some images may be omitted."
                         : "",
                     ]
                       .filter(Boolean)
@@ -297,7 +372,7 @@ else {
                   throw new Error(
                     "Attachments are too large to send together. Remove some images or attach a smaller file.",
                   );
-                result = attachments;
+                result = attachmentsSchema.parse(attachments);
                 break;
               }
               case "courseLanguage": {
@@ -316,6 +391,7 @@ else {
                 break;
               case "import": {
                 learning.assertIdle();
+                const scope = studyScopeSchema.parse(value ?? {});
                 const selection = await dialog.showOpenDialog(window!, {
                   properties: ["openFile"],
                   filters: [
@@ -342,7 +418,7 @@ else {
                   selection.filePaths[0],
                   join(app.getPath("userData"), "materials"),
                 );
-                result = await learning.plan(material);
+                result = await learning.plan(material, scope);
                 break;
               }
               case "transcript": {
@@ -350,17 +426,32 @@ else {
                   .object({
                     title: z.string().min(1).max(180),
                     text: z.string().min(20).max(600000),
+                    scope: studyScopeSchema.optional(),
                   })
                   .parse(value);
                 result = await learning.plan(
                   learning.transcript(input.title, input.text),
+                  input.scope,
                 );
                 break;
               }
               case "url": {
                 learning.assertIdle();
-                const url = z.string().url().max(4000).parse(value);
-                result = await learning.plan(await importUrl(url));
+                const input = z
+                  .union([
+                    z.string().url().max(4000),
+                    z.object({
+                      url: z.string().url().max(4000),
+                      scope: studyScopeSchema,
+                    }),
+                  ])
+                  .parse(value);
+                result = await learning.plan(
+                  await importUrl(
+                    typeof input === "string" ? input : input.url,
+                  ),
+                  typeof input === "string" ? undefined : input.scope,
+                );
                 break;
               }
               case "editPlan": {
@@ -427,12 +518,14 @@ else {
                     mode: z
                       .enum(["chat", "exercise", "answer"])
                       .default("chat"),
+                    webSearch: z.boolean().default(false),
                   })
                   .parse(value);
                 result = await learning.chat(
                   input.lessonId,
                   input.question,
                   input.mode,
+                  input.webSearch,
                 );
                 break;
               }

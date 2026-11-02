@@ -1,7 +1,7 @@
 # StudyFlow — canonical roadmap
 
 ## Product invariant
-Release target: one usable Windows 10 x64 desktop application, v0.1.1. Finish and validate the existing core; do not add optional features for this release.
+Release target: one usable Windows 10 x64 desktop application. Installed v0.1.2; finish flexible document interaction and verify official web search for the next release.
 Teach exactly one lesson at a time. Every lesson has its own persistent conversation. Student navigation controls the active lesson. Database state, never AI output, determines progress. Exercises are optional.
 Normal Chat is a separate general-purpose conversation mode with its own conversation/message tables; it can be used without a course or material and never changes study progress. Both modes share the existing official ChatGPT connection.
 
@@ -26,7 +26,7 @@ On 2026-10-30 the user completed OAuth. Authenticated model discovery and a real
 3. **Core implemented:** PDF selectable text, PPTX actual slide order/embedded images, image/text import; bounded generation, validated plans and editable preview. Full slide rendering remains open.
 4. **Implemented:** focused tutor, scoped quick actions, separate lesson chats, learning-path sidebar, persisted active lesson.
 5. **Implemented and service-tested:** complete/next, live deterministic progress, duplicate protection, undo, revisit, incomplete and review states.
-6. **Initial implementation:** optional exercises, saved attempts/feedback, math rendering, highlighted code, understanding questions. Deterministic verification and richer quiz UI remain open.
+6. **Implemented:** interactive source-grounded quizzes and multiple exercise formats, local choice grading, hidden answer keys, AI quality review and written feedback, persisted results/revision/resume, math rendering and highlighted code. Deterministic written mathematics verification remains deferred.
 7. **Initial implementation:** readable webpages, attempted public captions, transcript fallback, T3-style UI, source reader and Windows NSIS installer. Native UI acceptance and packaged regression checks remain open.
 
 ## Completed validation
@@ -45,7 +45,12 @@ On 2026-10-30 the user completed OAuth. Authenticated model discovery and a real
 - Localized app-owned connection/import/error notices and attachment warnings; provider diagnostics retain their original error codes. Conversation and course language overrides preserve history/progress. Attachment limits are validated again at the sending IPC boundary.
 
 ## Current tasks
-- UI/UX release 0.1.2: implementation and 34 automated tests plus native UI regression passed; production packaging/in-place update verification is in progress.
+- Implemented interactive persisted quizzes: default four-option MCQ; true/false, short answer, coding, maths and practical questions; answer keys/rubrics stay in the main process; independent AI quality verification before presentation; local choice grading and AI rubric feedback for written work; results, revision topics, mistake review and resume. New v3 migration only adds Quizzes and preserves legacy exercises/attempts. 43 tests plus native interactive quiz regression passed. Live quiz acceptance PASSED (five source-grounded Slovak A-D questions, quality audit, 80% score/mistake review, duplicate protection, persisted results, real written C# rubric feedback, unchanged lesson progress): `%APPDATA%/StudyFlow/acceptance/quiz-1793642113428/result.json`. Final packaged verification/update remains in progress.
+- UI/UX release 0.1.2: implemented, tested and installed in place (installer exit 0, durable profile files unchanged, installed ASAR matches production archive). Final installed-process zoom regression is carried into the next release checks.
+- Implemented focused learning with optional topic/page/slide scope, scoped tutor context and transactional persisted scope using existing Settings; original material retained. Implemented persistent chat-document context beyond the last 30 messages and document list. Native UI tests passed for the scope form, range, preview, starting the lesson, document tray, search toggles and external source-link IPC with simulated AI.
+- Official web_search probe PASSED on 2026-11-02 with the existing OAuth account and gpt-6.1-sol: completed search call plus URL citation annotations. Parser now handles citation-bearing output_item.done when response.completed.output is empty. Both modes have search controls and automatic explicit-search intent. No alternate billing or provider. Evidence: `%APPDATA%/StudyFlow/acceptance/web-1793640138925/result.json`.
+- Live document acceptance PASSED: multi-document PPTX summary without a course, saved-document slide follow-up, focused slide-5 plan/explanation/example, actual Study Mode web search/citations, separate full plan generation, database reopen and further document follow-up. Evidence: `%APPDATA%/StudyFlow/acceptance/documents-1793640373285/result.json`.
+- Final 43-test regression and native UI/quiz regression passed; v0.1.3 Windows installer rebuilt with documents, search and quizzes, and installed over the existing installation (exit 0). All durable profile file hashes were unchanged by the installer; installed ASAR matches production. Full backup: `%LOCALAPPDATA%/StudyFlow Backups/before-0.1.3-20261102-190256/StudyFlow/`. Native packaged PDF picker/import passed. Final installed-EXE local/live checks, shortcut launch and schema-upgrade data comparison are running.
 - Windows 0.1.1 build and in-place installation completed. Isolated installed-EXE regression passed for current lesson/path/layout changes; see release verification below.
 - Remaining release verification: full live-AI/native PDF/PPTX file-picker workflow. Prior service-layer live tests passed; the complete installed UI scenario must not yet be claimed passed. The earlier file-picker automation remains unfinished.
 
@@ -60,7 +65,7 @@ On 2026-10-30 the user completed OAuth. Authenticated model discovery and a real
 - Captured and visually inspected actual Electron screenshots at 1920x1080, 2560x1440, 1366x768, plus 125% and 150% Electron zoom as display-scaling approximations. Verified no document horizontal overflow, header directly below toolbar, wide input, visible completion controls and scrollable lesson conversation. Evidence: `artifacts/study-layout/`. Physical Windows DPI changes were not performed.
 - Existing installed app: `%LOCALAPPDATA%/Programs/StudyFlow/StudyFlow.exe`, one Desktop shortcut and one Start-menu shortcut. No auto-updater library, updater code or configured update feed exists; generated installer metadata alone does not provide automatic updates. Preserve this installation and data while upgrading to 0.1.1.
 - Complete pre-upgrade profile backup: `%LOCALAPPDATA%/StudyFlow Backups/before-0.1.1-20261101-003333/StudyFlow/`. An earlier backup was retained too; the final backup was refreshed after detecting a database change before installation.
-- Pending separate request: official authenticated `web_search` capability probe/integration is not implemented or claimed supported by this release. No billed API fallback was introduced.
+- Historical v0.1.1 limitation: web search was pending then. Implemented and authenticated-probed in the current release work; see Current tasks.
 
 ## Windows 0.1.1 in-place update — verified 2026-11-01
 - Built `release/StudyFlow Setup 0.1.1.exe` and installed silently into the existing `%LOCALAPPDATA%/Programs/StudyFlow/` directory; installer exit code 0. No additional installation or shortcut was created.
@@ -92,7 +97,7 @@ On 2026-10-30 the user completed OAuth. Authenticated model discovery and a real
 - Additional uninstall/upgrade regression coverage and packaged URL/image edge cases beyond the core PDF/PPTX workflow.
 - Live refresh/revocation, multiple saved account registrations, signed installer distribution.
 - Conversation context summarization beyond the last 30 complete messages; full history is still retained locally.
-- Deterministic mathematical checking, structured quiz grades and richer exercise reporting. No code execution.
+- Deterministic written mathematics checking and richer long-term exercise reporting. Structured quiz scores and mistake review are implemented; written answers use AI feedback. No code execution.
 - More responsive/accessibility checks; third-party technical diagnostics remain verbatim when no application translation is available.
 
 ## Next steps

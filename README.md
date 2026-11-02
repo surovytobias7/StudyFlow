@@ -4,7 +4,7 @@ A local-first Windows tutor with a T3 Code-inspired workspace. Import study mate
 
 ## Launch
 
-1. Double-click `release/StudyFlow Setup 0.1.1.exe` and complete the Windows installer.
+1. Double-click `release/StudyFlow Setup 0.1.3.exe` and complete the Windows installer.
 2. Launch **StudyFlow** from its desktop icon or the Start menu. The default installed executable is `%LOCALAPPDATA%/Programs/StudyFlow/StudyFlow.exe`.
 3. Your saved ChatGPT session is restored. If you have not connected an account yet, open **Settings → Continue with ChatGPT** and authorize eligible plan usage in your system browser.
 
@@ -26,6 +26,14 @@ If your Windows trust store contains an organizational CA and npm reports a cert
 ## Use
 
 Use **Normal chat → New chat** to ask any question immediately. Files and images are optional. Each chat is saved automatically; reopen, rename or delete it in the sidebar. Normal Chat never changes course progress. **Study mode** opens the structured lesson workflow below. Both modes use the same ChatGPT connection.
+
+Attach PDF/PPTX/images/text directly in Normal Chat for summaries, page questions, comparisons or exercises. The **Documents in this chat** list reopens extracted content; saved attachments remain available after long conversations and restarts. Ask by filename to select an older document. Requests include relevant excerpts from up to eight documents (90,000 text characters total) and up to eight images; the full extracted text stays local. Very large documents are not sent in full on each turn.
+
+For a **full learning path**, leave the learning-goal field empty. For **focused learning**, enter a topic or instructions and optionally a page/slide range before selecting a file or importing notes/URL. The generated preview and subsequent tutor stay within that scope; the original document is retained.
+
+**Search web** enables the official OpenAI `web_search` tool when useful in either mode. Explicit online-search/current-information requests also enable it for that request. Sources returned by the service become clickable inline citations and a Web source list, opening in your system browser. Access depends on the selected model and account policy. It uses the existing ChatGPT OAuth connection and shared allowance, with no API key or separately billed fallback. Unavailable/failed searches report an error and retain local history.
+
+Use **Quiz**, **Try an exercise**, **Test me**, or ask for questions in chat to open interactive practice. By default, multiple-choice questions have four clickable options. You can request true/false, written answers, coding, maths or practical tasks, a difficulty and up to ten questions. Ask for the entire presentation to expand beyond the current lesson. Questions are generated and independently checked against source context before display. Solutions stay outside the renderer until submission. Choice questions are marked locally; written work receives AI rubric feedback, and code is never executed. Results, explanations and revision topics are saved; reopen **Quiz → Saved quizzes** to resume or review them. Quiz completion never changes lesson completion. Large materials use bounded source excerpts and the course outline. Detailed quiz generation can take a few minutes and can be cancelled.
 
 Settings contains separate **Interface language** and **Default AI response language (both modes)** choices. The AI-language selector in a chat or course overrides the default for that conversation/session. Changing it affects future replies and preserves history and progress, regardless of the source document's language.
 
@@ -58,9 +66,9 @@ npm run test:ui
 npm run package:win
 ```
 
-32 automated tests cover callback rejection, streaming, malformed responses, plan validation, individual/whole-path completion, idempotency, transactional rollback, undo, revisits, real v1-to-v2 SQLite migration, independent normal conversations, response-language defaults/overrides, interrupted responses, safe shutdown, plan-limit recovery, file errors, presentation ordering, localization and URL address restrictions. `test:ui` drives the actual Electron renderer and preload against an isolated SQLite database and simulated AI; it never reads credentials or uses plan allowance. It also checks concurrent startup model discovery, chat CRUD, optional attachments, Markdown/code/math, both languages, mode switching, manual lesson/path actions and restoration. Study layout screenshots cover 1920x1080, 2560x1440, 1366x768 and simulated 125%/150% scaling in `artifacts/study-layout/`.
+43 automated tests cover callback rejection, streaming, malformed responses, plan validation, individual/whole-path completion, idempotency, transactional rollback, undo, revisits, real v1-to-v3 SQLite migration, independent normal conversations, response-language defaults/overrides, interrupted responses, safe shutdown, plan-limit recovery, file errors, presentation ordering, localization and URL address restrictions. `test:ui` drives the actual Electron renderer and preload against an isolated SQLite database and simulated AI; it never reads credentials or uses plan allowance. It also checks concurrent startup model discovery, chat CRUD, optional attachments, Markdown/code/math, both languages, mode switching, manual lesson/path actions and restoration. Study layout screenshots cover 1920x1080, 2560x1440, 1366x768 and simulated 125%/150% scaling in `artifacts/study-layout/`.
 
-The installed 0.1.1 EXE also passed local production regression using `node scripts/test-release.cjs "$env:LOCALAPPDATA/Programs/StudyFlow/StudyFlow.exe" --local-update`: native IPC, individual/path completion, confirmation/cancel, process restart, SQLite progress restoration, reopening, dashboard and saved Normal Chat/language preference. This uses a temporary fixture profile and no AI. Evidence: `artifacts/release-verification/local-update-result.json`. The existing installation was updated in place and its data files were verified unchanged.
+The installed 0.1.3 EXE also passed local production regression using `node scripts/test-release.cjs "$env:LOCALAPPDATA/Programs/StudyFlow/StudyFlow.exe" --local-update`: native IPC, individual/path completion, confirmation/cancel, process restart, SQLite progress restoration, reopening, dashboard and saved Normal Chat/language preference. This uses a temporary fixture profile and no AI. Evidence: `artifacts/release-verification/local-update-result.json`. The existing installation was updated in place and its data files were verified unchanged.
 
 Live verification on 2026-10-30 passed OAuth/model discovery/inference and a separate acceptance database using `fixtures/oop-acceptance.pptx`: generated six lessons, taught Lesson 1, answered a follow-up and example, completed Lesson 1, taught Lesson 2, preserved earlier conversations, and restored state after database reopen. Credential-free evidence is in `%APPDATA%/StudyFlow/acceptance/`. This is a service-layer acceptance run; a complete native UI click-through remains to be validated.
 

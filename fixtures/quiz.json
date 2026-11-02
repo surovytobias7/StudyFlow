@@ -1,0 +1,7 @@
+{
+  "title": "Objects and instance state",
+  "questions": [
+    {"type":"multiple_choice","prompt":"Which statement correctly describes an object?","topic":"Objects","difficulty":"easy","options":["An instance of a class","A source file","A class declaration","A namespace"],"correctOption":0,"explanation":"An object is a concrete instance of a class with its own state.","optionExplanations":["Correct: an object is an instance.","A source file contains definitions, not runtime instances.","A class is the definition used to create instances.","A namespace groups names, not runtime state."],"sampleAnswer":"","rubric":"","references":["Slide 1"]},
+    {"type":"multiple_choice","prompt":"Two objects are created from the same class. Which field values must always be shared?","topic":"Instance state","difficulty":"medium","options":["All fields","All instance fields","Only explicitly static fields","Only string fields"],"correctOption":2,"explanation":"Static fields belong to the type; ordinary instance fields belong to each individual object.","optionExplanations":["Instance fields are separate for each object.","Instance fields belong to their own objects.","Static fields are associated with the type rather than individual instances.","The string type does not make a field shared."],"sampleAnswer":"","rubric":"","references":["Slide 1"]}
+  ]
+}

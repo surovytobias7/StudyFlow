@@ -38,6 +38,8 @@ import {
   PanelRightOpen,
   PanelLeft,
   ArrowDown,
+  Globe,
+  ListChecks,
 } from "lucide-react";
 import type {
   Snapshot,
@@ -53,6 +55,8 @@ import { ConversationDialog } from "./ConversationDialog";
 import { localizeMessage } from "../src/localization";
 import { attachmentsSchema } from "../src/domain";
 import { useChatScroll } from "./useChatScroll";
+import { QuizDialog } from "./QuizDialog";
+import { isQuizRequest, quizScope, type QuizTarget } from "../src/quiz";
 
 type Connection = {
   error?: string;
@@ -112,17 +116,68 @@ async function call<T>(action: string, value?: unknown): Promise<T> {
   return result.data as T;
 }
 function RichText({ children }: { children: string }) {
+  const [linkError, setLinkError] = useState("");
   return (
-    <Markdown
-      remarkPlugins={[remarkGfm, remarkMath]}
-      rehypePlugins={[rehypeKatex, rehypeHighlight]}
-      components={{
-        a: ({ children }) => <span className="source-link">{children}</span>,
-        img: ({ alt }) => <span>{alt}</span>,
-      }}
+    <>
+      <Markdown
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[rehypeKatex, rehypeHighlight]}
+        components={{
+          a: ({ children, href }) =>
+            href && /^https?:\/\//i.test(href) ? (
+              <a
+                className="source-link"
+                href={href}
+                target="_blank"
+                rel="noreferrer noopener"
+                onClick={(event) => {
+                  event.preventDefault();
+                  void call("openLink", href).catch((error) =>
+                    setLinkError(error.message),
+                  );
+                }}
+              >
+                {children}
+              </a>
+            ) : (
+              <span>{children}</span>
+            ),
+          img: ({ alt }) => <span>{alt}</span>,
+        }}
+      >
+        {children}
+      </Markdown>
+      {linkError && <small role="alert">{linkError}</small>}
+    </>
+  );
+}
+function WebSearchToggle({
+  enabled,
+  onChange,
+  disabled,
+  sk,
+}: {
+  enabled: boolean;
+  onChange: () => void;
+  disabled: boolean;
+  sk: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className={`text-button web-toggle ${enabled ? "enabled" : ""}`}
+      aria-pressed={enabled}
+      disabled={disabled}
+      onClick={onChange}
+      title={
+        sk
+          ? "Povoliť vyhľadávanie podľa potreby. Výslovná žiadosť o vyhľadanie ho zapne aj bez prepínača. Dostupnosť závisí od modelu a účtu."
+          : "Allow search when useful. Explicit web search requests also enable it. Availability depends on your model and account."
+      }
     >
-      {children}
-    </Markdown>
+      <Globe size={14} />
+      {sk ? "Hľadať na webe" : "Search web"}
+    </button>
   );
 }
 function SourceDialog({
@@ -217,6 +272,27 @@ export default function App() {
   const normalRef = useRef<string | undefined>(undefined);
   normalRef.current = normal.conversation?.id;
   const [plan, setPlan] = useState<Plan | null>(null);
+  const [studyFocus, setStudyFocus] = useState("");
+  const [scopeFrom, setScopeFrom] = useState("");
+  const [scopeTo, setScopeTo] = useState("");
+  const [searchWeb, setSearchWeb] = useState(false);
+  const [quizDialog, setQuizDialog] = useState<{
+    target: QuizTarget;
+    request: string;
+    attachments?: NormalAttachment[];
+  } | null>(null);
+  const studyScope = {
+    instructions: studyFocus.trim(),
+    ...(scopeFrom ? { from: Number(scopeFrom) } : {}),
+    ...(scopeTo ? { to: Number(scopeTo) } : {}),
+  };
+  const savedDocuments = [
+    ...new Map(
+      normal.messages
+        .flatMap((message) => message.attachments)
+        .map((file) => [file.name, file]),
+    ).values(),
+  ];
   const [source, setSource] = useState<Material | null>(null);
   const sk = data.settings.language === "sk";
   const t = (en: string, slovak: string) => (sk ? slovak : en);
@@ -394,6 +470,10 @@ export default function App() {
   }
   async function sendNormal() {
     if (busy || (!normalDraft.trim() && !normalAttachments.length)) return;
+    if (isQuizRequest(normalDraft)) {
+      await openQuiz(normalDraft);
+      return;
+    }
     const current = normal.conversation;
     await run(async () => {
       const validation = attachmentsSchema.safeParse(normalAttachments);
@@ -440,6 +520,7 @@ export default function App() {
             id: target.id,
             question: messageText,
             attachments,
+            webSearch: searchWeb,
           }),
         );
       } finally {
@@ -469,6 +550,10 @@ export default function App() {
   }
   function chat(question: string, mode = "chat") {
     if (!activeId || !question.trim()) return;
+    if (mode === "exercise" || (mode === "chat" && isQuizRequest(question))) {
+      void openQuiz(question);
+      return;
+    }
     void run(async () => {
       const id = activeId;
       setStudyResponding(true);
@@ -490,7 +575,14 @@ export default function App() {
         ],
       }));
       try {
-        setData(await call<Snapshot>("chat", { lessonId: id, question, mode }));
+        setData(
+          await call<Snapshot>("chat", {
+            lessonId: id,
+            question,
+            mode,
+            webSearch: searchWeb,
+          }),
+        );
       } finally {
         setStudyResponding(false);
         setStream("");
@@ -511,9 +603,32 @@ export default function App() {
       await explain(snapshot);
     });
   }
+  async function openQuiz(request = "") {
+    if (busy) return;
+    if (view === "normal") {
+      await run(async () => {
+        let conversation = normal.conversation;
+        if (!conversation) {
+          const created = await call<NormalSnapshot>("normalCreate", null);
+          setNormal(created);
+          conversation = created.conversation;
+        }
+        if (conversation)
+          setQuizDialog({
+            target: { conversationId: conversation.id, scope: "chat" },
+            request,
+            attachments: normalAttachments,
+          });
+      });
+    } else if (activeId)
+      setQuizDialog({
+        target: { lessonId: activeId, scope: quizScope(request) },
+        request,
+      });
+  }
   function importFile() {
     void run(async () => {
-      const snapshot = await call<Snapshot | null>("import");
+      const snapshot = await call<Snapshot | null>("import", studyScope);
       if (snapshot) {
         setData(snapshot);
         setView("learn");
@@ -668,6 +783,29 @@ export default function App() {
             }
             setNormal(result);
             setManageChat(null);
+          }}
+        />
+      )}
+      {quizDialog && (
+        <QuizDialog
+          target={quizDialog.target}
+          initialRequest={quizDialog.request}
+          attachments={quizDialog.attachments}
+          sk={sk}
+          command={call}
+          renderText={(text) => <RichText>{text}</RichText>}
+          onClose={() => setQuizDialog(null)}
+          onChanged={async () => {
+            if ("conversationId" in quizDialog.target) {
+              setNormal(
+                await call<NormalSnapshot>(
+                  "normalSnapshot",
+                  quizDialog.target.conversationId,
+                ),
+              );
+              setNormalDraft("");
+              setNormalAttachments([]);
+            } else setDraft("");
           }}
         />
       )}
@@ -1098,6 +1236,42 @@ export default function App() {
                   </select>
                 </label>
               </header>
+              {savedDocuments.length > 0 && (
+                <details className="conversation-documents">
+                  <summary>
+                    <FileText size={14} />
+                    {t(
+                      "Documents in this chat",
+                      "Dokumenty v tomto chate",
+                    )} · {savedDocuments.length}
+                  </summary>
+                  <div className="attachment-list">
+                    {savedDocuments.map((file, index) => (
+                      <button
+                        type="button"
+                        className="attachment-chip"
+                        key={index}
+                        onClick={() =>
+                          setSource({
+                            ...file,
+                            id: `saved-${index}`,
+                            warning: file.warning ?? "",
+                          })
+                        }
+                      >
+                        <FileText size={14} />
+                        {file.name}
+                      </button>
+                    ))}
+                  </div>
+                  <small>
+                    {t(
+                      "Ask about these documents at any time, including a specific page, slide or topic. No lessons are created.",
+                      "K týmto dokumentom sa môžeš kedykoľvek vrátiť otázkou na stranu, snímku alebo tému. Nevytvárajú sa lekcie.",
+                    )}
+                  </small>
+                </details>
+              )}
               <div
                 className="normal-messages"
                 ref={scroller}
@@ -1296,6 +1470,21 @@ export default function App() {
                       <Plus size={15} />
                       {t("Attach", "Priložiť")}
                     </button>
+                    <WebSearchToggle
+                      enabled={searchWeb}
+                      onChange={() => setSearchWeb((value) => !value)}
+                      disabled={busy}
+                      sk={sk}
+                    />
+                    <button
+                      type="button"
+                      className="text-button"
+                      disabled={busy}
+                      onClick={() => void openQuiz()}
+                    >
+                      <ListChecks size={14} />
+                      {t("Quiz", "Kvíz")}
+                    </button>
                     <span className="muted">
                       <Sparkles size={12} />{" "}
                       {connection.models.find(
@@ -1469,6 +1658,69 @@ export default function App() {
                   </button>
                 </div>
               )}
+              <div className="study-scope">
+                <label htmlFor="study-focus">
+                  {t("What would you like to learn?", "Čo sa chceš naučiť?")}
+                </label>
+                <textarea
+                  id="study-focus"
+                  rows={2}
+                  maxLength={4000}
+                  value={studyFocus}
+                  onChange={(e) => setStudyFocus(e.target.value)}
+                  placeholder={t(
+                    "Leave empty for the full learning path, or ask: Teach only polymorphism / Explain the formulas…",
+                    "Nechaj prázdne pre celý plán, alebo napíš: Nauč ma iba polymorfizmus / Vysvetli vzorce…",
+                  )}
+                />
+                <details>
+                  <summary>
+                    {t(
+                      "Limit pages or slides (optional)",
+                      "Obmedziť strany alebo snímky (voliteľné)",
+                    )}
+                  </summary>
+                  <div className="scope-range">
+                    <label>
+                      {t("From", "Od")}
+                      <input
+                        type="number"
+                        min={1}
+                        max={10000}
+                        value={scopeFrom}
+                        onChange={(e) => setScopeFrom(e.target.value)}
+                      />
+                    </label>
+                    <label>
+                      {t("To", "Do")}
+                      <input
+                        type="number"
+                        min={1}
+                        max={10000}
+                        value={scopeTo}
+                        onChange={(e) => setScopeTo(e.target.value)}
+                      />
+                    </label>
+                  </div>
+                </details>
+                <small>
+                  {t(
+                    "Want a summary or document questions instead?",
+                    "Chceš radšej súhrn alebo otázky k dokumentu?",
+                  )}{" "}
+                  <button
+                    type="button"
+                    className="text-button"
+                    disabled={busy}
+                    onClick={() => void createNormalConversation()}
+                  >
+                    {t(
+                      "Open normal chat and attach files",
+                      "Otvor bežný chat a prilož súbory",
+                    )}
+                  </button>
+                </small>
+              </div>
               <button
                 className="upload-zone"
                 onClick={importFile}
@@ -1505,10 +1757,10 @@ export default function App() {
                     }
                     onClick={() =>
                       void run(async () => {
-                        const snapshot = await call<Snapshot>(
-                          "url",
-                          sourceUrl.trim(),
-                        );
+                        const snapshot = await call<Snapshot>("url", {
+                          url: sourceUrl.trim(),
+                          scope: studyScope,
+                        });
                         setData(snapshot);
                         setView("learn");
                       })
@@ -1573,6 +1825,7 @@ export default function App() {
                     const result = await call<Snapshot>("transcript", {
                       title: title.trim(),
                       text: transcript.trim(),
+                      scope: studyScope,
                     });
                     setData(result);
                     setView("learn");
@@ -2161,7 +2414,22 @@ export default function App() {
                             }}
                           />
                           <div className="composer-bottom">
-                            <span>
+                            <WebSearchToggle
+                              enabled={searchWeb}
+                              onChange={() => setSearchWeb((value) => !value)}
+                              disabled={busy}
+                              sk={sk}
+                            />
+                            <button
+                              type="button"
+                              className="text-button"
+                              disabled={busy}
+                              onClick={() => void openQuiz()}
+                            >
+                              <ListChecks size={14} />
+                              {t("Quiz", "Kvíz")}
+                            </button>
+                            <span className="composer-model">
                               <Sparkles size={12} />
                               {connection.models.find(
                                 (m) => m.slug === data.settings.model,

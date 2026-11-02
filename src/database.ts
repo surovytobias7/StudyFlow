@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
+import type { StudyScope } from "./document-context.js";
 import type {
   Course,
   Lesson,
@@ -23,7 +24,7 @@ export class Store {
     const version = (
       this.db.prepare("PRAGMA user_version").get() as { user_version: number }
     ).user_version;
-    if (version > 2)
+    if (version > 3)
       throw new Error("This database requires a newer version of StudyFlow.");
     if (version === 0)
       this.db.exec(`BEGIN;
@@ -52,6 +53,15 @@ export class Store {
       CREATE INDEX normal_message_conversation ON NormalMessages(conversationId,createdAt);
       INSERT INTO Settings(key,value) VALUES('activeMode','study');
       PRAGMA user_version=2; COMMIT;`);
+    const latest = (
+      this.db.prepare("PRAGMA user_version").get() as { user_version: number }
+    ).user_version;
+    if (latest === 2)
+      this.db.exec(`BEGIN;
+      CREATE TABLE Quizzes(id TEXT PRIMARY KEY,lessonId TEXT REFERENCES Lessons(id) ON DELETE CASCADE,conversationId TEXT REFERENCES NormalConversations(id) ON DELETE CASCADE,scope TEXT NOT NULL,request TEXT NOT NULL,payload TEXT NOT NULL,answers TEXT NOT NULL DEFAULT '[]',position INTEGER NOT NULL DEFAULT 0,createdAt TEXT NOT NULL,CHECK((lessonId IS NOT NULL)+(conversationId IS NOT NULL)=1));
+      CREATE INDEX quiz_lesson ON Quizzes(lessonId,createdAt);
+      CREATE INDEX quiz_chat ON Quizzes(conversationId,createdAt);
+      PRAGMA user_version=3; COMMIT;`);
   }
   close() {
     this.db.close();
@@ -275,7 +285,7 @@ export class Store {
     if (!course) throw new Error("Course not found.");
     return course.aiLanguage;
   }
-  create(material: Material, plan: Plan) {
+  create(material: Material, plan: Plan, scope?: StudyScope) {
     return this.transaction(() => {
       const id = randomUUID(),
         path = randomUUID();
@@ -296,6 +306,8 @@ export class Store {
         );
       this.insertLessons(id, path, plan);
       this.setting("activeCourse", id);
+      if (scope && (scope.instructions || scope.from))
+        this.setting(`scope:${id}`, JSON.stringify(scope));
       return this.snapshot(id);
     });
   }

@@ -416,7 +416,7 @@ test("version-one databases migrate without losing lessons or messages", () => {
           user_version: number;
         }
       ).user_version,
-      2,
+      3,
     );
     const snapshot = store.snapshot();
     assert.equal(snapshot.course?.title, "Legacy OOP");

@@ -4,6 +4,71 @@ export const AUTH = "https://auth.openai.com";
 export const API = "https://api.openai.com/v1";
 export const SCOPES =
   "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct";
+export type SearchEvidence = { calls: number; citations: number };
+export type StreamOptions = {
+  requireSearch?: boolean;
+  evidence?: (result: SearchEvidence) => void;
+};
+
+export function citedText(text: string, annotations: unknown[]) {
+  const sources: { url: string; title: string }[] = [];
+  const edits: { start: number; end: number; label: string }[] = [];
+  for (const value of annotations) {
+    if (!value || typeof value !== "object") continue;
+    const a = value as Record<string, unknown>;
+    if (a.type !== "url_citation" || typeof a.url !== "string") continue;
+    let url: URL;
+    try {
+      url = new URL(a.url);
+    } catch {
+      continue;
+    }
+    if (
+      !["https:", "http:"].includes(url.protocol) ||
+      url.username ||
+      url.password
+    )
+      continue;
+    const href = url.href.replace(/[()<>]/g, (c) => encodeURIComponent(c));
+    let index = sources.findIndex((s) => s.url === href);
+    if (index < 0) {
+      index = sources.length;
+      sources.push({
+        url: href,
+        title: String(a.title || url.hostname)
+          .replace(/[\[\]<>\r\n\\]/g, " ")
+          .slice(0, 240),
+      });
+    }
+    if (Number.isInteger(a.start_index) && Number.isInteger(a.end_index)) {
+      const start = Number(a.start_index),
+        end = Number(a.end_index);
+      if (start >= 0 && end >= start && end <= text.length) {
+        const span = text.slice(start, end);
+        const marker =
+          /^\s*(?:\(?\[[^\]]+\]\(https?:\/\/[^)]+\)\)?|cite[\s\S]*?|\[cite\])\s*$/u.test(
+            span,
+          );
+        edits.push({
+          start,
+          end,
+          label: `${marker ? "" : span} [${index + 1}](${href})`,
+        });
+      }
+    }
+  }
+  let boundary = text.length;
+  for (const edit of edits.sort((a, b) => b.start - a.start)) {
+    if (edit.end > boundary) continue;
+    text = text.slice(0, edit.start) + edit.label + text.slice(edit.end);
+    boundary = edit.start;
+  }
+  if (sources.length)
+    text +=
+      "\n\n---\n**Web**\n" +
+      sources.map((s, i) => `\n${i + 1}. [${s.title}](${s.url})`).join("");
+  return { text, count: sources.length };
+}
 export const randomSecret = () => randomBytes(32).toString("base64url");
 
 export function authorization(
@@ -74,6 +139,7 @@ export function responseBody(model: string) {
 export async function consumeResponse(
   response: Response,
   delta: (text: string) => void,
+  options: StreamOptions = {},
 ) {
   if (!response.ok) throw new Error(`Inference HTTP ${response.status}.`);
   const contentType = response.headers
@@ -89,18 +155,23 @@ export async function consumeResponse(
   }
   // Some network paths omit Content-Type. The SSE parser and required terminal
   // event still validate the actual protocol; a missing header alone is not failure.
-  return consumeStream(response.body, delta);
+  return consumeStream(response.body, delta, options);
 }
 
 export async function consumeStream(
   body: ReadableStream<Uint8Array>,
   delta: (text: string) => void,
+  options: StreamOptions = {},
 ) {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let completed = false;
   let output = "";
+  let searchCalls = 0;
+  let finalText: string | undefined;
+  let citationCount = 0;
+  const streamedItems = new Map<number, any>();
   try {
     while (true) {
       const next = await reader.read();
@@ -117,6 +188,11 @@ export async function consumeStream(
           .join("\n");
         if (!data || data === "[DONE]") continue;
         const event = JSON.parse(data);
+        if (event.type === "response.output_item.done" && event.item)
+          streamedItems.set(
+            event.output_index ?? streamedItems.size,
+            event.item,
+          );
         if (
           event.type === "response.output_text.delta" &&
           typeof event.delta === "string"
@@ -140,7 +216,45 @@ export async function consumeStream(
               .slice(0, 120)}. No alternate billing was used.`,
           );
         }
-        if (event.type === "response.completed") completed = true;
+        if (event.type === "response.web_search_call.completed") searchCalls++;
+        if (event.type === "response.completed") {
+          completed = true;
+          // Subscription-sharing streams can omit output from the terminal envelope.
+          const terminal = Array.isArray(event.response?.output)
+            ? event.response.output
+            : [];
+          const items = terminal.length
+            ? terminal
+            : [...streamedItems.entries()]
+                .sort((a, b) => a[0] - b[0])
+                .map(([, item]) => item);
+          searchCalls = Math.max(
+            searchCalls,
+            items.filter(
+              (item: any) =>
+                item.type === "web_search_call" && item.status === "completed",
+            ).length,
+          );
+          const texts = items
+            .filter((item: any) => item.type === "message")
+            .flatMap((item: any) => item.content ?? [])
+            .filter(
+              (part: any) =>
+                part.type === "output_text" && typeof part.text === "string",
+            );
+          if (texts.length) {
+            finalText = texts
+              .map((part: any) => {
+                const cited = citedText(
+                  part.text,
+                  searchCalls ? (part.annotations ?? []) : [],
+                );
+                citationCount += cited.count;
+                return cited.text;
+              })
+              .join("\n\n");
+          }
+        }
       }
       if (next.done) break;
       if (buffer.length > 2_000_000)
@@ -154,7 +268,12 @@ export async function consumeStream(
       throw new Error(
         "Response completed without a text explanation; integration is not verified.",
       );
-    return output;
+    options.evidence?.({ calls: searchCalls, citations: citationCount });
+    if (options.requireSearch && !searchCalls)
+      throw new Error(
+        "The model did not perform the requested web search. No search results were verified.",
+      );
+    return finalText ?? output;
   } finally {
     await reader.cancel().catch(() => {});
     reader.releaseLock();
