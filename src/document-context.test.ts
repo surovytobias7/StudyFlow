@@ -76,6 +76,16 @@ test("focused plan and scope persist; tutor receives only selected pages and pro
     },
     async generate(_m: string, instructions: string, input: unknown[]) {
       requests.push({ instructions, input });
+      if (instructions.startsWith("Analyze ALL"))
+        return JSON.stringify({
+          topics: [
+            {
+              concept: "Polymorphism",
+              details: "Virtual dispatch",
+              references: ["Slide 2"],
+            },
+          ],
+        });
       return instructions.startsWith("Design")
         ? JSON.stringify({
             title: "Focused OOP",
@@ -84,6 +94,7 @@ test("focused plan and scope persist; tutor receives only selected pages and pro
                 title: "Polymorphism",
                 objective: "Understand virtual dispatch",
                 references: ["Slide 2"],
+                conceptIds: ["1.1"],
               },
             ],
           })
@@ -162,7 +173,7 @@ test("old attachments remain usable beyond the rolling chat window, with no cour
     await learning.normalChat(id, "Explain page 12", []);
     assert.match(JSON.stringify(request), /Formula abc123/);
     assert.equal(store.courses().length, 0);
-    assert.deepEqual(options, {});
+    assert.deepEqual(options, { webSearch: "auto" });
     await learning.normalChat(id, "Search the web for useful sources", []);
     assert.deepEqual(options, { webSearch: "required" });
     assert.equal(
@@ -173,14 +184,17 @@ test("old attachments remain usable beyond the rolling chat window, with no cour
     store.close();
   }
 });
-test("search intent uses only official optional/required tools and leaves ordinary chat offline", () => {
-  assert.deepEqual(searchOptions("Explain a class", false), {});
+test("automatic research offers official tools without forcing a search for stable concepts", () => {
+  assert.deepEqual(searchOptions("Explain a class", false), {
+    webSearch: "auto",
+  });
   assert.deepEqual(
     searchOptions("Find additional explanations of this concept.", false),
     { webSearch: "required" },
   );
   assert.deepEqual(searchOptions("Explain a class", true), {
     webSearch: "auto",
+    researchDepth: "deep",
   });
   assert.deepEqual(searchOptions("Nájdi zdroje na internete", false), {
     webSearch: "required",

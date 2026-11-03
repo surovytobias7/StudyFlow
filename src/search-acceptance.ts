@@ -4,6 +4,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import assert from "node:assert/strict";
 import type { Connection } from "./connection.js";
 import type { SearchEvidence } from "./protocol.js";
+import { searchOptions, researchInstructions } from "./search.js";
 
 // Uses only the existing encrypted ChatGPT registration; never prints credentials.
 export async function searchAcceptance(connection: Connection) {
@@ -26,19 +27,21 @@ export async function searchAcceptance(connection: Connection) {
     const model = status.models[0].slug;
     result.model = model;
     let evidence: SearchEvidence | undefined;
+    const question =
+      "What is the current stable Python version and release date today? Cross-check official python.org/downloads against an independently maintained source, explain any conflict, and cite both. Keep the answer concise.";
     const text = await connection.generate(
       model,
-      "Search the live web. Prefer the official Python website. Answer in English in two sentences and cite your source. Do not invent search results.",
+      researchInstructions +
+        " Answer in English concisely. This verification needs at least two independent sources.",
       [
         {
           role: "user",
-          content:
-            "Search the web for the current stable Python release listed on python.org/downloads. Give its version and release date.",
+          content: question,
         },
       ],
       () => {},
       {
-        webSearch: "required",
+        ...searchOptions(question, false),
         evidence: (value) => {
           evidence = value;
         },
@@ -52,9 +55,13 @@ export async function searchAcceptance(connection: Connection) {
       "No official URL citation annotations returned",
     );
     assert.match(text, /\]\(https?:\/\//);
+    assert.ok(
+      evidence.citations >= 2,
+      "Verification did not return multiple cited sources",
+    );
     result.passed = true;
     console.info(
-      "PASS: authenticated official web_search completed with URL citations",
+      "PASS: automatic official web_search without toggle, cross-source verification and URL citations",
       model,
       JSON.stringify(evidence),
     );

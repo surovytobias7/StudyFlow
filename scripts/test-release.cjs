@@ -473,7 +473,7 @@ async function main() {
   await pick(path.join(root, "fixtures", "oop-acceptance.pptx"));
   await waitFor(
     "document.querySelectorAll('.plan-editor li').length>=2",
-    120000,
+    420000,
   );
   let study = await command("snapshot");
   const courseId = study.course.id;
@@ -650,7 +650,7 @@ async function main() {
   await pick(path.join(root, "fixtures", "oop-acceptance.pptx"));
   await waitFor(
     "document.querySelectorAll('.plan-editor li').length>=1",
-    120000,
+    420000,
   );
   const focused = await command("snapshot");
   assert.ok(

@@ -1,7 +1,7 @@
 # StudyFlow — canonical roadmap
 
 ## Product invariant
-Release target: one usable Windows 10 x64 desktop application. Installed v0.1.2; finish flexible document interaction and verify official web search for the next release.
+Release target achieved for the core workflow: one usable Windows 10 x64 desktop application. Installed v0.1.4 in the existing location; current-release local and live installed acceptance passed. Optional limitations remain explicitly deferred below.
 Teach exactly one lesson at a time. Every lesson has its own persistent conversation. Student navigation controls the active lesson. Database state, never AI output, determines progress. Exercises are optional.
 Normal Chat is a separate general-purpose conversation mode with its own conversation/message tables; it can be used without a course or material and never changes study progress. Both modes share the existing official ChatGPT connection.
 
@@ -25,9 +25,9 @@ On 2026-10-30 the user completed OAuth. Authenticated model discovery and a real
 2. **Implemented:** per-lesson persistent conversations, streaming, cancellation, interrupted-response handling and offline history. Separate Normal Chat now has optional multi-file/image attachments, Markdown/math/code rendering, independent saved conversations, rename/delete/reopen, streaming and a per-conversation AI language override.
 3. **Core implemented:** PDF selectable text, PPTX actual slide order/embedded images, image/text import; bounded generation, validated plans and editable preview. Full slide rendering remains open.
 4. **Implemented:** focused tutor, scoped quick actions, separate lesson chats, learning-path sidebar, persisted active lesson.
-5. **Implemented and service-tested:** complete/next, live deterministic progress, duplicate protection, undo, revisit, incomplete and review states.
+5. **Implemented and installed-tested:** complete/next, live deterministic progress, duplicate protection, undo, revisit, incomplete and review states.
 6. **Implemented:** interactive source-grounded quizzes and multiple exercise formats, local choice grading, hidden answer keys, AI quality review and written feedback, persisted results/revision/resume, math rendering and highlighted code. Deterministic written mathematics verification remains deferred.
-7. **Initial implementation:** readable webpages, attempted public captions, transcript fallback, T3-style UI, source reader and Windows NSIS installer. Native UI acceptance and packaged regression checks remain open.
+7. **Core implemented:** readable webpages, attempted public captions, transcript fallback, responsive T3-style UI, source reader and Windows NSIS installer. Final current-release installed acceptance is recorded above.
 
 ## Completed validation
 - TypeScript backend/UI checks and production Vite build.
@@ -44,15 +44,23 @@ On 2026-10-30 the user completed OAuth. Authenticated model discovery and a real
 - Live Normal Chat acceptance on 2026-10-31: three real streamed Responses requests through the existing ChatGPT plan; Slovak no-file reply, English follow-up using local history, English attachment summarized in Slovak. Confirmed no course/progress creation. Evidence: `%APPDATA%/StudyFlow/acceptance/normal-2026-10-31T18-03-40-770Z/result.json`.
 - Localized app-owned connection/import/error notices and attachment warnings; provider diagnostics retain their original error codes. Conversation and course language overrides preserve history/progress. Attachment limits are validated again at the sending IPC boundary.
 
-## Current tasks
-- Implemented interactive persisted quizzes: default four-option MCQ; true/false, short answer, coding, maths and practical questions; answer keys/rubrics stay in the main process; independent AI quality verification before presentation; local choice grading and AI rubric feedback for written work; results, revision topics, mistake review and resume. New v3 migration only adds Quizzes and preserves legacy exercises/attempts. 43 tests plus native interactive quiz regression passed. Live quiz acceptance PASSED (five source-grounded Slovak A-D questions, quality audit, 80% score/mistake review, duplicate protection, persisted results, real written C# rubric feedback, unchanged lesson progress): `%APPDATA%/StudyFlow/acceptance/quiz-1793642113428/result.json`. Final packaged verification/update remains in progress.
-- UI/UX release 0.1.2: implemented, tested and installed in place (installer exit 0, durable profile files unchanged, installed ASAR matches production archive). Final installed-process zoom regression is carried into the next release checks.
-- Implemented focused learning with optional topic/page/slide scope, scoped tutor context and transactional persisted scope using existing Settings; original material retained. Implemented persistent chat-document context beyond the last 30 messages and document list. Native UI tests passed for the scope form, range, preview, starting the lesson, document tray, search toggles and external source-link IPC with simulated AI.
-- Official web_search probe PASSED on 2026-11-02 with the existing OAuth account and gpt-6.1-sol: completed search call plus URL citation annotations. Parser now handles citation-bearing output_item.done when response.completed.output is empty. Both modes have search controls and automatic explicit-search intent. No alternate billing or provider. Evidence: `%APPDATA%/StudyFlow/acceptance/web-1793640138925/result.json`.
-- Live document acceptance PASSED: multi-document PPTX summary without a course, saved-document slide follow-up, focused slide-5 plan/explanation/example, actual Study Mode web search/citations, separate full plan generation, database reopen and further document follow-up. Evidence: `%APPDATA%/StudyFlow/acceptance/documents-1793640373285/result.json`.
-- Final 43-test regression and native UI/quiz regression passed; v0.1.3 Windows installer rebuilt with documents, search and quizzes, and installed over the existing installation (exit 0). All durable profile file hashes were unchanged by the installer; installed ASAR matches production. Full backup: `%LOCALAPPDATA%/StudyFlow Backups/before-0.1.3-20261102-190256/StudyFlow/`. Native packaged PDF picker/import passed. Final installed-EXE local/live checks, shortcut launch and schema-upgrade data comparison are running.
-- Windows 0.1.1 build and in-place installation completed. Isolated installed-EXE regression passed for current lesson/path/layout changes; see release verification below.
-- Remaining release verification: full live-AI/native PDF/PPTX file-picker workflow. Prior service-layer live tests passed; the complete installed UI scenario must not yet be claimed passed. The earlier file-picker automation remains unfinished.
+## Current release: 0.1.4 (2026-11-03)
+- [x] Existing Normal Chat/document attachments, focused/full learning, lesson/path completion, languages, zoom and history retained.
+- [x] New courses: complete-source concept inventories, global topic/prerequisite grouping, independent coverage/source audit and saved concept mapping. Transport chunks never define lessons. Existing paths/progress are untouched. Real 6-slide OOP material produced 3 coherent lessons, plus a separate focused slide-5 lesson.
+- [x] Tutor: appropriate prerequisites, what/why/how/when, substantive examples/limitations, useful background knowledge, adaptive focused follow-ups and no fixed explanation word cap.
+- [x] Automatic official web_search in both modes, adaptive basic/standard/deep guidance, compact Deep research control, authoritative/independent verification, actual provider citations and clear unavailable-search errors. No separate API billing. Live automatic probe: 3 completed searches, 2 citations from Python.org and endoflife.date (`web-1793735787460/result.json`). Search-count limits are guidance because this OAuth route rejects max_tool_calls.
+- [x] Default lesson practice: automatic 4 ABCD questions, no required text input; unfinished quizzes resume. Optional collapsed customization for concept/count/difficulty/type; written/coding/math only on explicit request or selection. Current explanation/questions join source context.
+- [x] Strict Responses JSON schema for generation, independent quality audit and written grading; local schema/business validation; one repair attempt per stage, no malformed-question dropping or fabricated fallback. Usage/auth/network failures are not format retries. Exact answer keys stay outside renderer until submission.
+- [x] Quiz keyboard navigation, question focus/scroll reset, source-referenced results/mistake review, compact short-window layout and LaTeX \( \)/\[ \] compatibility outside code. Quiz completion never changes lesson progress.
+- [x] 48/48 automated tests passed. Native Electron regression passed: four questions, answers, feedback, 75% results, mistake review, resume, optional coding, Normal Chat quiz, unchanged progress, manual lesson/path actions, zoom and reader-aware scrolling. Study and quiz layout checked at 1920x1080, 2560x1440, 1366x768 and 125%/150% Electron zoom. Actual screenshots inspected; physical Windows DPI changes were not performed.
+- [x] Live quizzes: four ABCD questions for programming, mathematics and theory; real repair of an intentionally truncated real response; explicit math/written/coding selections; persisted 75% results. The broad run `quiz-1793735224731` failed its final custom-count check; the detected natural-language parser defect was fixed. Targeted real repeat `quiz-1793735662905/result.json` PASSED custom count/type/difficulty and structured written grading. The original intermittent user response was unavailable and did not reproduce in the baseline; regression tests cover malformed JSON, wrong answer encodings, missing questions and exhausted recovery.
+- [x] Live full/focused planning, source coverage and substantive same-lesson explanation/follow-up PASSED: `documents-1793736036115/result.json`. An earlier run failed reference formatting; explicit canonical reference values and repair diagnostics fixed it. Existing multi-document Normal Chat/follow-up live checks passed before that failure.
+- [x] Final Windows NSIS build and in-place update: installer exit 0, installed ASAR SHA-256 matches the production build, registry version 0.1.4, one installation and one shortcut each on Desktop/Start menu. All durable profile files and materials were byte-identical across installation. Backup: `%LOCALAPPDATA%/StudyFlow Backups/before-0.1.4-20261103-210425/`. Evidence: `artifacts/installation-0.1.4.json`.
+- [x] Installed-EXE offline regression: manual lesson/path actions, confirmation/cancel, full process restart, retained progress/history/language, dashboard and persisted zoom passed. Evidence: `artifacts/release-verification/local-update-result.json`.
+- [x] Final live installed-EXE acceptance PASSED all 17 checks: restored account, no-file chat, language change, invalid/valid PDF, native PPTX import to 3 logical lessons, focused explanation/follow-up, interactive quiz submission, deterministic progress/next lesson, revisit, full process restart, retained chat/language, Slovak navigation/dashboard, document chat/web citations and focused slide-5 plan/follow-up/restart. Evidence: `artifacts/release-verification/result.json` and actual production screenshots.
+- [x] Original desktop shortcut launched the updated installed EXE; its StudyFlow window is responding and left open for the user. After startup all 14 preexisting database tables have identical counts and content hashes, including courses, lessons, conversations, messages, progress, saved quiz and settings. Material files were preserved. Evidence: `artifacts/shortcut-launch-0.1.4.json`, `artifacts/profile-before-0.1.4.json`, `artifacts/profile-after-0.1.4.json`. No duplicate installations or shortcuts. Installer: `release/StudyFlow Setup 0.1.4.exe` (unsigned). No automatic updates or public release publication.
+
+Evidence paths above are under `%APPDATA%/StudyFlow/acceptance/`; local regression logs/screenshots are in `artifacts/`. Historical milestones below describe prior releases.
 
 ## Study Mode and completion improvements — 2026-11-01
 - Fixed the AI-language selector inheriting a 190px vertical flex basis and global column-label styles. It now lives in the lesson header, beside lesson metadata. Normal Chat styling and authentication are unchanged.
@@ -101,7 +109,7 @@ On 2026-10-30 the user completed OAuth. Authenticated model discovery and a real
 - More responsive/accessibility checks; third-party technical diagnostics remain verbatim when no application translation is available.
 
 ## Next steps
-Use the updated installed v0.1.1 application. Finish the remaining live-AI/native-import acceptance check before claiming the full original release scenario verified. Rendering, OCR, account-management and richer exercise work remains postponed. Keep this file as the only roadmap.
+Use the updated installed v0.1.4 through the existing desktop shortcut. Core improvements and installed acceptance are complete; do not expand the release scope. OCR, complete PPTX visual rendering, signing/automatic updates, account switching, physical DPI testing and deterministic written mathematics remain deferred. Keep this file as the only roadmap.
 
 ## Official sources checked
 - https://developers.openai.com/siwc/quickstart
@@ -110,3 +118,6 @@ Use the updated installed v0.1.1 application. Finish the remaining live-AI/nativ
 - https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions
 - https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference
 - https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations
+
+- https://developers.openai.com/api/docs/guides/structured-outputs
+- https://developers.openai.com/api/docs/guides/tools-web-search

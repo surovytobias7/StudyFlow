@@ -1,4 +1,57 @@
 import { z } from "zod";
+import { jsonValue, validationDetails } from "./structured.js";
+
+export const practiceSchema = z
+  .object({
+    type: z
+      .enum(["multiple_choice", "short_answer", "coding", "math"])
+      .optional(),
+    count: z.number().int().min(1).max(10).optional(),
+    difficulty: z.enum(["auto", "easy", "medium", "hard"]).optional(),
+  })
+  .strict();
+export type Practice = z.infer<typeof practiceSchema>;
+export function practicePreferences(request: string, custom: Practice = {}) {
+  const count = request.match(
+    /\b(10|[1-9])\s+(?:[\p{L}_-]+\s+){0,4}(?:questions?|exercises?|MCQs?|ABCD|otáz|otaz|cvičen|cvicen|úloh|uloh)/iu,
+  )?.[1];
+  const wordCount = /\b(one|jednu|jeden)\b/i.test(request)
+    ? 1
+    : /\btwo\b/i.test(request)
+      ? 2
+      : /\bfive\b/i.test(request)
+        ? 5
+        : 4;
+  const requestedChoice =
+    /multiple.choice|ABCD|s výberom/iu.test(request) &&
+    !/(?:not|no)\s+multiple.choice/iu.test(request);
+  const type = requestedChoice
+    ? "multiple_choice"
+    : /true.?false|pravda.{0,5}nepravda/i.test(request)
+      ? "true_false"
+      : /coding|programovac.{0,8}(?:úloh|uloh|cvičen|cvicen)|(?:practical|praktick).{0,20}(?:C#|C\+\+|Python)|(?:C#|Python).{0,20}(?:exercise|úloh)/iu.test(
+            request,
+          ) && !/(?<!not )multiple.choice|ABCD|s výberom/iu.test(request)
+        ? "coding"
+        : /written|short.answer|písomn|pisomn|short_answer/iu.test(request)
+          ? "short_answer"
+          : /(?:math|matematick).{0,25}(?:exercise|problem|úloh|príklad)|\bmath\b/iu.test(
+                request,
+              )
+            ? "math"
+            : /\bpractical\b/iu.test(request)
+              ? "practical"
+              : "multiple_choice";
+  return {
+    count: custom.count ?? (count ? Number(count) : wordCount),
+    type: custom.type ?? type,
+    difficulty:
+      custom.difficulty ??
+      (/hard|difficult|nároč|naroc|ťažk|tazk/iu.test(request)
+        ? "hard"
+        : "auto"),
+  };
+}
 
 export const quizTargetSchema = z.union([
   z
@@ -132,12 +185,14 @@ export function parseQuiz(text: string): QuizData {
     const order = { easy: 0, medium: 1, hard: 2 };
     quiz.questions.sort((a, b) => order[a.difficulty] - order[b.difficulty]);
     return quiz;
-  } catch {
-    throw new Error("The tutor returned an invalid quiz. Please try again.");
+  } catch (error) {
+    throw new Error(
+      `The tutor returned an invalid quiz. ${validationDetails(error)}`,
+    );
   }
 }
 export function isQuizRequest(text: string) {
-  return /\bquiz\b|kvíz|kviz|test (?:my|me)|testuj|otestuj|(?:give|create|generate).{0,40}(?:questions|exercises)|(?:daj|vytvor|priprav).{0,40}(?:otáz|otaz|cvičen|cvicen)|multiple.choice|true\s*\/\s*false/iu.test(
+  return /\bquiz\b|kvíz|kviz|test (?:my|me)|testuj|otestuj|(?:give|create|generate).{0,40}(?:questions?|exercises?)|(?:daj|vytvor|priprav).{0,40}(?:otáz|otaz|cvičen|cvicen|úloh|uloh)|multiple.choice|true\s*\/\s*false/iu.test(
     text,
   );
 }

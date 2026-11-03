@@ -56,6 +56,7 @@ import { localizeMessage } from "../src/localization";
 import { attachmentsSchema } from "../src/domain";
 import { useChatScroll } from "./useChatScroll";
 import { QuizDialog } from "./QuizDialog";
+import { mathMarkdown } from "../src/markdown";
 import { isQuizRequest, quizScope, type QuizTarget } from "../src/quiz";
 
 type Connection = {
@@ -145,7 +146,7 @@ function RichText({ children }: { children: string }) {
           img: ({ alt }) => <span>{alt}</span>,
         }}
       >
-        {children}
+        {mathMarkdown(children)}
       </Markdown>
       {linkError && <small role="alert">{linkError}</small>}
     </>
@@ -171,12 +172,12 @@ function WebSearchToggle({
       onClick={onChange}
       title={
         sk
-          ? "Povoliť vyhľadávanie podľa potreby. Výslovná žiadosť o vyhľadanie ho zapne aj bez prepínača. Dostupnosť závisí od modelu a účtu."
-          : "Allow search when useful. Explicit web search requests also enable it. Availability depends on your model and account."
+          ? "Výskum je automatický podľa potreby. Zapni pre dôkladnejšie overovanie z viacerých zdrojov. Dostupnosť závisí od modelu a účtu."
+          : "Research is automatic when useful. Enable for deeper verification across sources. Availability depends on your model and account."
       }
     >
       <Globe size={14} />
-      {sk ? "Hľadať na webe" : "Search web"}
+      {sk ? "Hĺbkový výskum" : "Deep research"}
     </button>
   );
 }
@@ -551,7 +552,7 @@ export default function App() {
   function chat(question: string, mode = "chat") {
     if (!activeId || !question.trim()) return;
     if (mode === "exercise" || (mode === "chat" && isQuizRequest(question))) {
-      void openQuiz(question);
+      void openQuiz(mode === "exercise" ? "" : question);
       return;
     }
     void run(async () => {
@@ -790,6 +791,15 @@ export default function App() {
         <QuizDialog
           target={quizDialog.target}
           initialRequest={quizDialog.request}
+          contextTitle={
+            "lessonId" in quizDialog.target
+              ? data.lessons.find(
+                  (l) =>
+                    l.id ===
+                    (quizDialog.target as { lessonId: string }).lessonId,
+                )?.title
+              : normal.conversation?.title
+          }
           attachments={quizDialog.attachments}
           sk={sk}
           command={call}

@@ -3,7 +3,7 @@ import { z } from "zod";
 export const lessonDraft = z.object({
   title: z.string().min(1).max(180),
   objective: z.string().min(1).max(2000),
-  references: z.array(z.string().max(200)).max(40),
+  references: z.array(z.string().max(200)).max(500),
 });
 export const planSchema = z.object({
   title: z.string().min(1).max(180),

@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Check, X, LoaderCircle, ArrowRight, RotateCcw } from "lucide-react";
 import type { QuizSummary, QuizTarget, QuizView } from "../src/quiz";
-import { quizScope } from "../src/quiz";
+import { quizScope, type Practice } from "../src/quiz";
 import type { NormalAttachment } from "../src/domain";
 import { localizeMessage } from "../src/localization";
 
 type Props = {
   target: QuizTarget;
   initialRequest: string;
+  contextTitle?: string;
   attachments?: NormalAttachment[];
   sk: boolean;
   command: <T>(action: string, value?: unknown) => Promise<T>;
@@ -18,6 +19,7 @@ type Props = {
 export function QuizDialog({
   target,
   initialRequest,
+  contextTitle,
   attachments = [],
   sk,
   command,
@@ -30,14 +32,8 @@ export function QuizDialog({
     started = useRef(false);
   const [quiz, setQuiz] = useState<QuizView | null>(null),
     [history, setHistory] = useState<QuizSummary[]>([]);
-  const [request, setRequest] = useState(
-    initialRequest ||
-      (target.scope === "chat"
-        ? ""
-        : sk
-          ? "Daj mi 5 otázok s výberom odpovede k aktuálnej téme."
-          : "Give me 5 multiple-choice questions about the current topic."),
-  );
+  const [request, setRequest] = useState(initialRequest);
+  const [practice, setPractice] = useState<Practice>({});
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [answer, setAnswer] = useState("");
@@ -67,19 +63,22 @@ export function QuizDialog({
   async function refresh() {
     setHistory(await command<QuizSummary[]>("quizList", target));
   }
-  async function generate(text = request) {
-    await run(async () => {
-      const generated = await command<QuizView>("quizGenerate", {
-        target:
-          "lessonId" in target ? { ...target, scope: quizScope(text) } : target,
-        request: text,
-        attachments,
-      });
-      setQuiz(generated);
-      setAnswer("");
-      await refresh();
-      await onChanged();
+  async function create(text: string) {
+    setProgressText("");
+    const generated = await command<QuizView>("quizGenerate", {
+      target:
+        "lessonId" in target ? { ...target, scope: quizScope(text) } : target,
+      request: text,
+      attachments,
+      practice,
     });
+    setQuiz(generated);
+    setAnswer("");
+    await refresh();
+    await onChanged();
+  }
+  async function generate(text = request) {
+    await run(() => create(text));
   }
   useEffect(() => {
     dialog.current?.showModal();
@@ -92,10 +91,17 @@ export function QuizDialog({
         setHistory(saved);
         const pending = saved.find((q) => !q.complete);
         if (pending) setQuiz(await command<QuizView>("quizGet", pending.id));
+        else await create("");
       });
   }, []);
   const q = quiz?.question,
     feedback = quiz?.feedback;
+  useEffect(() => {
+    dialog.current?.scrollTo({ top: 0 });
+    dialog.current
+      ?.querySelector<HTMLElement>(".quiz-question, .quiz-results h3")
+      ?.focus({ preventScroll: true });
+  }, [quiz?.id, quiz?.position]);
   return (
     <dialog
       ref={dialog}
@@ -110,6 +116,7 @@ export function QuizDialog({
           <span className="eyebrow">
             {t("OPTIONAL PRACTICE", "VOLITEĽNÉ PRECVIČOVANIE")}
           </span>
+          {contextTitle && <p className="quiz-context">{contextTitle}</p>}
           <h2>{quiz?.title ?? t("Practice & quizzes", "Cvičenia a kvízy")}</h2>
         </div>
         <button
@@ -153,20 +160,88 @@ export function QuizDialog({
           </button>
         </div>
       )}
-      {!quiz && !busy && (
-        <div className="quiz-setup">
+      <details className="quiz-customize">
+        <summary>
+          {t("Customize practice", "Prispôsobiť precvičovanie")}
+        </summary>
+        <fieldset disabled={busy} className="quiz-setup">
+          <div className="quiz-settings">
+            <label>
+              {t("Exercise type", "Typ cvičenia")}
+              <select
+                aria-label={t("Exercise type", "Typ cvičenia")}
+                value={practice.type ?? "multiple_choice"}
+                onChange={(e) =>
+                  setPractice((p) => ({
+                    ...p,
+                    type: e.target.value as Practice["type"],
+                  }))
+                }
+              >
+                <option value="multiple_choice">
+                  {t("Multiple Choice (ABCD)", "Výber odpovede (ABCD)")}
+                </option>
+                <option value="short_answer">
+                  {t("Written Answer", "Písomná odpoveď")}
+                </option>
+                <option value="coding">
+                  {t("Coding Exercise", "Programovacia úloha")}
+                </option>
+                <option value="math">
+                  {t("Math Exercise", "Matematická úloha")}
+                </option>
+              </select>
+            </label>
+            <label>
+              {t("Questions", "Otázky")}
+              <select
+                aria-label={t("Number of questions", "Počet otázok")}
+                value={practice.count ?? 4}
+                onChange={(e) =>
+                  setPractice((p) => ({ ...p, count: Number(e.target.value) }))
+                }
+              >
+                {Array.from({ length: 10 }, (_, i) => (
+                  <option key={i} value={i + 1}>
+                    {i + 1}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              {t("Difficulty", "Náročnosť")}
+              <select
+                aria-label={t("Difficulty", "Náročnosť")}
+                value={practice.difficulty ?? "auto"}
+                onChange={(e) =>
+                  setPractice((p) => ({
+                    ...p,
+                    difficulty: e.target.value as Practice["difficulty"],
+                  }))
+                }
+              >
+                <option value="auto">{t("Adaptive", "Podľa lekcie")}</option>
+                <option value="easy">{t("Easy", "Ľahká")}</option>
+                <option value="medium">{t("Medium", "Stredná")}</option>
+                <option value="hard">{t("Hard", "Náročná")}</option>
+              </select>
+            </label>
+          </div>
           <label htmlFor="quiz-request">
-            {t("What would you like to practice?", "Čo si chceš precvičiť?")}
+            {t(
+              "Specific topic or instructions (optional)",
+              "Konkrétna téma alebo pokyny (voliteľné)",
+            )}
           </label>
           <textarea
             id="quiz-request"
-            rows={3}
+            rows={2}
             maxLength={4000}
             value={request}
             onChange={(e) => setRequest(e.target.value)}
             placeholder={t(
-              "5 hard MCQs, true/false, a C# coding task, maths problems…",
-              "5 náročných otázok, pravda/nepravda, úloha v C#, matematické príklady…",
+              "Leave blank to practice the important concepts of this lesson.",
+              "Nechaj prázdne pre precvičenie dôležitých pojmov tejto lekcie.",
             )}
           />
           {"lessonId" in target && (
@@ -182,14 +257,15 @@ export function QuizDialog({
                   )}
             </p>
           )}
-          <button
-            className="primary"
-            disabled={!request.trim()}
-            onClick={() => void generate()}
-          >
+          <button className="primary" onClick={() => void generate()}>
             {t("Generate questions", "Vytvoriť otázky")}
           </button>
-        </div>
+        </fieldset>
+      </details>
+      {!quiz && !busy && error && (
+        <button className="primary" onClick={() => void generate()}>
+          {t("Try again", "Skúsiť znova")}
+        </button>
       )}
       {quiz && (
         <>
@@ -227,7 +303,9 @@ export function QuizDialog({
                   }
                 </span>
               </div>
-              <div className="prose quiz-question">{renderText(q.prompt)}</div>
+              <div className="prose quiz-question" tabIndex={-1}>
+                {renderText(q.prompt)}
+              </div>
               {q.references.length > 0 && (
                 <small className="muted">{q.references.join(" · ")}</small>
               )}
@@ -247,9 +325,41 @@ export function QuizDialog({
                         type="button"
                         role="radio"
                         aria-checked={selected}
+                        tabIndex={selected || (!answer && index === 0) ? 0 : -1}
                         disabled={busy || !!feedback}
                         className={`quiz-option ${selected ? "selected" : ""} ${feedback ? (correct ? "correct" : selected ? "incorrect" : "") : ""}`}
                         onClick={() => setAnswer(String(index))}
+                        onKeyDown={(event) => {
+                          if (
+                            ![
+                              "ArrowDown",
+                              "ArrowRight",
+                              "ArrowUp",
+                              "ArrowLeft",
+                              "Home",
+                              "End",
+                            ].includes(event.key)
+                          )
+                            return;
+                          event.preventDefault();
+                          const next =
+                            event.key === "Home"
+                              ? 0
+                              : event.key === "End"
+                                ? q.options.length - 1
+                                : (index +
+                                    (event.key === "ArrowDown" ||
+                                    event.key === "ArrowRight"
+                                      ? 1
+                                      : -1) +
+                                    q.options.length) %
+                                  q.options.length;
+                          setAnswer(String(next));
+                          const group = event.currentTarget.parentElement;
+                          group
+                            ?.querySelectorAll<HTMLButtonElement>("button")
+                            [next]?.focus();
+                        }}
                       >
                         <span className="option-letter">
                           {String.fromCharCode(65 + index)}
@@ -346,7 +456,7 @@ export function QuizDialog({
                 {Math.round((quiz.correct / quiz.total) * 100)}
                 <small>%</small>
               </div>
-              <h3>
+              <h3 tabIndex={-1}>
                 {quiz.correct}/{quiz.total}{" "}
                 {t("correct answers", "správnych odpovedí")}
               </h3>
@@ -398,10 +508,7 @@ export function QuizDialog({
           {!busy && (
             <button
               className="text-button quiz-new"
-              onClick={() => {
-                setQuiz(null);
-                setAnswer("");
-              }}
+              onClick={() => void generate()}
             >
               {t("Create another quiz", "Vytvoriť ďalší kvíz")}
             </button>

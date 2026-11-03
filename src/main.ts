@@ -19,7 +19,7 @@ import { installZoom } from "./zoom.js";
 import { studyScopeSchema } from "./document-context.js";
 import { searchAcceptance } from "./search-acceptance.js";
 import { documentAcceptance } from "./document-acceptance.js";
-import { quizTargetSchema } from "./quiz.js";
+import { quizTargetSchema, practiceSchema } from "./quiz.js";
 import { quizAcceptance } from "./quiz-acceptance.js";
 
 app.setName("StudyFlow");
@@ -178,12 +178,14 @@ else {
                     target: quizTargetSchema,
                     request: z.string().max(4000),
                     attachments: attachmentsSchema.default([]),
+                    practice: practiceSchema.default({}),
                   })
                   .parse(value);
                 result = await learning.generateQuiz(
                   input.target,
                   input.request,
                   input.attachments,
+                  input.practice,
                 );
                 break;
               }

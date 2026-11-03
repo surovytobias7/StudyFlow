@@ -122,11 +122,25 @@ app
         if (
           prompt.includes("assessment designer") ||
           prompt.startsWith("Independently audit")
-        )
-          return (
+        ) {
+          const data = JSON.parse(
             quizData ??
-            readFileSync(join(root, "fixtures", "quiz.json"), "utf8")
+              readFileSync(join(root, "fixtures", "quiz.json"), "utf8"),
           );
+          const count = prompt.match(/Generate exactly (\d+) questions/)?.[1];
+          if (count) data.questions = data.questions.slice(0, Number(count));
+          return JSON.stringify(data);
+        }
+        if (options?.jsonSchema?.name === "source_inventory")
+          return JSON.stringify({
+            topics: [
+              {
+                concept: "Polymorphism",
+                details: "Virtual methods",
+                references: ["Slide 2"],
+              },
+            ],
+          });
         if (prompt.startsWith("Evaluate this student's answer"))
           return JSON.stringify({
             correct: true,
@@ -135,7 +149,7 @@ app
           });
         const response =
           nextResponse ??
-          `${prompt.includes("Respond in Slovak") ? "Slovenská odpoveď" : "English answer"}\n\n**Clear explanation**\n\n\`\`\`typescript\nconst answer = 42;\n\`\`\`\n\n$x^2 + 1$`;
+          `${prompt.includes("Respond in Slovak") ? "Slovenská odpoveď" : "English answer"}\n\n**Clear explanation**\n\n\`\`\`typescript\nconst answer = 42;\n\`\`\`\n\n\\(x^2 + 1\\)`;
         for (const part of [response.slice(0, 20), response.slice(20)]) {
           delta(part);
           if (pauseStream) await pauseStream;
@@ -176,6 +190,7 @@ app
               value.target,
               value.request,
               value.attachments,
+              value.practice,
             );
             break;
           case "quizAnswer":
@@ -402,7 +417,10 @@ app
       attachment.name,
     );
     nextResponse = undefined;
-    assert.deepEqual(generationOptions.at(-1), { webSearch: "auto" });
+    assert.deepEqual(generationOptions.at(-1), {
+      webSearch: "auto",
+      researchDepth: "deep",
+    });
     await waitFor("!!document.querySelector('.conversation-documents')");
     await evaluate(
       "new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))",
@@ -741,6 +759,7 @@ app
           title: "Polymorphism",
           objective: "Virtual methods",
           references: ["Slide 2"],
+          conceptIds: ["1.1"],
         },
       ],
     });
@@ -768,8 +787,7 @@ app
     );
     const quizProgress = store.snapshot().course.completed;
     await textButton("Quiz");
-    await fill("#quiz-request", "Give me 2 multiple-choice questions.");
-    await textButton("Generate questions");
+
     await waitFor(
       "document.querySelectorAll('.quiz-option').length===4 && !document.querySelector('.quiz-loading')",
     );
@@ -795,7 +813,43 @@ app
       join(root, "artifacts", "quiz-question.png"),
       (await window.webContents.capturePage()).toPNG(),
     );
-    await click(".quiz-option", 1);
+    for (const [width, height, zoom] of [
+      [1920, 1080, 1],
+      [2560, 1440, 1],
+      [1366, 768, 1],
+      [1366, 768, 1.25],
+      [1366, 768, 1.5],
+    ]) {
+      window.setContentSize(width, height);
+      window.webContents.setZoomFactor(zoom);
+      await evaluate(
+        "new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))",
+      );
+      const bounds = await evaluate(
+        "(()=>{const d=document.querySelector('.quiz-dialog'),r=d.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:innerWidth,height:innerHeight,overflow:d.scrollWidth>d.clientWidth+1};})()",
+      );
+      assert.ok(
+        bounds.left >= 0 &&
+          bounds.right <= bounds.width + 1 &&
+          bounds.top >= 0 &&
+          bounds.bottom <= bounds.height + 1 &&
+          !bounds.overflow,
+        JSON.stringify(bounds),
+      );
+      if (zoom === 1.5)
+        writeFileSync(
+          join(root, "artifacts", "quiz-scaled.png"),
+          (await window.webContents.capturePage()).toPNG(),
+        );
+    }
+    window.setContentSize(1440, 940);
+    window.webContents.setZoomFactor(1);
+    await evaluate("document.querySelector('.quiz-option').focus()");
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Down" });
+    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Down" });
+    await waitFor(
+      "document.querySelectorAll('.quiz-option')[1].getAttribute('aria-checked')==='true'",
+    );
     await click(".quiz-submit");
     await waitFor(
       "!!document.querySelector('.quiz-feedback.incorrect') && !document.querySelector('.quiz-loading')",
@@ -817,8 +871,19 @@ app
       "!!document.querySelector('.quiz-feedback.correct') && !document.querySelector('.quiz-loading')",
     );
     await click(".quiz-next");
+    for (let index = 2; index < 4; index++) {
+      await waitFor(
+        "!!document.querySelector('.quiz-submit') && !document.querySelector('.quiz-loading')",
+      );
+      await click(".quiz-option", 0);
+      await click(".quiz-submit");
+      await waitFor(
+        "!!document.querySelector('.quiz-feedback.correct') && !document.querySelector('.quiz-loading')",
+      );
+      await click(".quiz-next");
+    }
     await waitFor(
-      "document.querySelector('.quiz-score')?.textContent==='50%' && !document.querySelector('.quiz-loading')",
+      "document.querySelector('.quiz-score')?.textContent==='75%' && !document.querySelector('.quiz-loading')",
     );
     await click(".quiz-review.incorrect summary");
     await evaluate(
@@ -829,7 +894,6 @@ app
       (await window.webContents.capturePage()).toPNG(),
     );
     assert.equal(store.snapshot().course.completed, quizProgress);
-    await textButton("Create another quiz");
     const written = JSON.parse(
       readFileSync(join(root, "fixtures", "quiz.json"), "utf8"),
     );
@@ -845,6 +909,10 @@ app
       },
     ];
     quizData = JSON.stringify(written);
+    await click(".quiz-customize summary");
+    await evaluate(
+      "(()=>{const s=document.querySelector('[aria-label=\"Exercise type\"]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(s,'coding');s.dispatchEvent(new Event('change',{bubbles:true}));})()",
+    );
     await fill("#quiz-request", "Give one coding exercise");
     await textButton("Generate questions");
     await waitFor(

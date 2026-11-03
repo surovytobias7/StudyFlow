@@ -397,6 +397,17 @@ export class Connection {
             input,
             store: false,
             stream: true,
+            ...(options.jsonSchema
+              ? {
+                  text: {
+                    format: {
+                      type: "json_schema",
+                      strict: true,
+                      ...options.jsonSchema,
+                    },
+                  },
+                }
+              : {}),
             ...(options.webSearch
               ? {
                   tools: [{ type: "web_search" }],

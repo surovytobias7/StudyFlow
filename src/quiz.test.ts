@@ -6,7 +6,12 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Store } from "./database.js";
 import { Learning } from "./learning.js";
-import { parseQuiz, isQuizRequest, type QuizData } from "./quiz.js";
+import {
+  parseQuiz,
+  isQuizRequest,
+  practicePreferences,
+  type QuizData,
+} from "./quiz.js";
 
 export function fixtureQuiz(): QuizData {
   return {
@@ -37,18 +42,25 @@ export function fixtureQuiz(): QuizData {
         references: ["Slide 1"],
       },
       {
-        type: "true_false",
+        type: "multiple_choice",
         prompt:
           "Two instances of a class always share all instance field values.",
         topic: "Instance state",
         difficulty: "medium",
-        options: ["True", "False"],
+        options: [
+          "All values are shared",
+          "Each object has its own instance state",
+          "Fields exist only in source files",
+          "Only strings are separate",
+        ],
         correctOption: 1,
         explanation:
           "Each instance owns its instance state; static fields are a different concept.",
         optionExplanations: [
           "Instance fields belong to individual objects.",
           "Correct: instance state is separate.",
+          "Fields have runtime state.",
+          "All instance field types are per instance.",
         ],
         sampleAnswer: "",
         rubric: "",
@@ -132,6 +144,10 @@ test("quizzes verify generation twice, hide answer keys, grade choices locally, 
     assert.equal(context.requests.length, 2);
     assert.match(context.requests[1]!.instructions, /Independently audit/);
     assert.match(context.requests[0]!.instructions, /Slovak/);
+    assert.match(
+      JSON.stringify(context.requests[0]!.input),
+      /Saved explanation/,
+    );
     assert.doesNotMatch(
       JSON.stringify(context.requests[0]!.input),
       /Constructors initialize/,
@@ -183,7 +199,7 @@ test("whole-course and normal-document quizzes use the correct scope; written co
   try {
     const whole = await learning.generateQuiz(
       { lessonId: course.lessons[0]!.id, scope: "course" },
-      "Quiz the whole presentation",
+      "Give two questions on the whole presentation",
     );
     assert.match(JSON.stringify(requests[0]!.input), /Constructors initialize/);
     assert.equal(whole.scope, "course");
@@ -288,5 +304,113 @@ test("version-two upgrade retains existing exercise records and attempts", () =>
   } finally {
     store.close();
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("practice defaults to four ABCD questions and only explicit requests change format", () => {
+  assert.deepEqual(practicePreferences(""), {
+    count: 4,
+    type: "multiple_choice",
+    difficulty: "auto",
+  });
+  assert.equal(
+    practicePreferences("Test my understanding of generic C# code").type,
+    "multiple_choice",
+  );
+  assert.equal(
+    practicePreferences("Daj mi 5 náročných ABCD otázok o kóde").count,
+    5,
+  );
+  assert.equal(
+    practicePreferences("Daj mi 5 náročných ABCD otázok o kóde").type,
+    "multiple_choice",
+  );
+  assert.equal(
+    practicePreferences("Give me a practical C# exercise").type,
+    "coding",
+  );
+  assert.deepEqual(
+    practicePreferences(
+      "Give me 5 difficult multiple-choice questions about math",
+    ),
+    { count: 5, type: "multiple_choice", difficulty: "hard" },
+  );
+  assert.equal(
+    practicePreferences("Give me written questions").type,
+    "short_answer",
+  );
+  assert.equal(
+    practicePreferences("", { type: "math", count: 2 }).type,
+    "math",
+  );
+});
+
+test("malformed JSON, wrong answer encoding and missing questions recover once without silently dropping data", async () => {
+  for (const broken of [
+    "not JSON",
+    JSON.stringify({
+      ...fixtureQuiz(),
+      questions: [{ ...fixtureQuiz().questions[0], correctOption: "B" }],
+    }),
+    JSON.stringify({ title: "Broken", questions: [] }),
+  ]) {
+    const { store, learning, connection, course } = setup();
+    try {
+      let calls = 0;
+      connection.generate = async (_m, instructions, input) => {
+        calls++;
+        if (calls === 1) return broken;
+        if (calls === 2)
+          assert.match(JSON.stringify(input), /Repair the complete response/);
+        return JSON.stringify(fixtureQuiz());
+      };
+      const quiz = await learning.generateQuiz(
+        { lessonId: course.lessons[0]!.id, scope: "lesson" },
+        "Give two questions",
+      );
+      assert.equal(calls, 3); // original + repair + independent audit
+      assert.equal(quiz.total, 2);
+      assert.equal(store.snapshot().course!.completed, 0);
+    } finally {
+      store.close();
+    }
+  }
+});
+
+test("unrecoverable quizzes and usage limits do not save partial banks or retry paid requests", async () => {
+  const { store, learning, connection, course } = setup();
+  try {
+    let calls = 0;
+    connection.generate = async () => {
+      calls++;
+      return "{}";
+    };
+    await assert.rejects(
+      learning.generateQuiz(
+        { lessonId: course.lessons[0]!.id, scope: "lesson" },
+        "",
+      ),
+      /after automatic recovery/,
+    );
+    assert.equal(calls, 2);
+    assert.equal(
+      store.db.prepare("SELECT count(*) AS n FROM Quizzes").get()!.n,
+      0,
+    );
+    calls = 0;
+    connection.generate = async () => {
+      calls++;
+      throw new Error("OpenAI HTTP 429");
+    };
+    await assert.rejects(
+      learning.generateQuiz(
+        { lessonId: course.lessons[0]!.id, scope: "lesson" },
+        "",
+      ),
+      /429/,
+    );
+    assert.equal(calls, 1);
+  } finally {
+    store.close();
   }
 });

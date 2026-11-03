@@ -1,5 +1,11 @@
 // Application-owned status/error text. Provider diagnostics remain available verbatim.
 const slovak: Record<string, string> = {
+  "Repairing quiz format…": "Opravujem formát kvízu…",
+  "Repairing learning path…": "Opravujem študijný plán…",
+  "Organizing topics into lessons…": "Usporiadavam témy do lekcií…",
+  "Checking learning path coverage…": "Overujem pokrytie učiva…",
+  "The tutor could not produce a valid quiz after automatic recovery. Your saved work is unchanged. Please try again.": "Kvíz sa nepodarilo overiť ani po automatickej oprave. Uložená práca je zachovaná. Skús to znova.",
+  "The tutor could not verify the learning path coverage. Please try generating it again.": "Nepodarilo sa overiť pokrytie učiva. Skús plán vytvoriť znova.",
   "Generating quiz questions…": "Vytváram otázky kvízu…",
   "Checking question quality…": "Overujem kvalitu otázok…",
   "Quiz not found.": "Kvíz sa nenašiel.",

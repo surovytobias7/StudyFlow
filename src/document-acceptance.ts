@@ -18,6 +18,20 @@ export async function documentAcceptance(connection: Connection) {
   const file = join(directory, "test.sqlite");
   let store = new Store(file);
   const steps: string[] = [];
+  let responseNumber = 0;
+  const observed = {
+    refreshModels: () => connection.refreshModels(),
+    generate: async (...args: Parameters<Connection["generate"]>) => {
+      const index = ++responseNumber;
+      await writeFile(
+        join(directory, `request-${index}.json`),
+        JSON.stringify({ instructions: args[1], input: args[2] }, null, 2),
+      );
+      const text = await connection.generate(...args);
+      await writeFile(join(directory, `response-${index}.txt`), text);
+      return text;
+    },
+  };
   const pass = (text: string) => {
     steps.push(text);
     console.info("PASS:", text);
@@ -27,12 +41,52 @@ export async function documentAcceptance(connection: Connection) {
     assert.ok(status.models[0]);
     store.setting("model", status.models[0].slug);
     store.setting("tutorLanguage", "sk");
-    let learning = new Learning(store, connection, () => {});
+    let learning = new Learning(store, observed, () => {});
     const material = await importMaterial(
       join(app.getAppPath(), "fixtures", "oop-acceptance.pptx"),
       join(directory, "materials"),
     );
     const chat = store.createNormalConversation(null).conversation!.id;
+    if (process.argv.includes("--plan-only")) {
+      const full = await learning.plan({ ...material, id: randomUUID() });
+      const focused = await learning.plan(
+        { ...material, id: randomUUID() },
+        { instructions: "Only polymorphism", from: 5, to: 5 },
+      );
+      assert.ok(full.lessons.length > focused.lessons.length);
+      assert.ok(store.settings()[`coverage:${full.course!.id}`]);
+      assert.ok(
+        focused.lessons.every((l) =>
+          l.references.every((r) => r === "Slide 5"),
+        ),
+      );
+      store.activate(focused.lessons[0]!.id);
+      await learning.chat(focused.lessons[0]!.id, "");
+      await learning.chat(
+        focused.lessons[0]!.id,
+        "Explain the virtual dispatch reasoning without reteaching elementary C# types.",
+      );
+      await writeFile(
+        join(directory, "result.json"),
+        JSON.stringify(
+          {
+            passed: true,
+            full,
+            focused,
+            messages: store.messages(focused.lessons[0]!.id),
+            coverage: JSON.parse(
+              store.settings()[`coverage:${full.course!.id}`]!,
+            ),
+          },
+          null,
+          2,
+        ),
+      );
+      pass(
+        "Real full-source conceptual planning, coverage audit, focused range, substantive tutor explanation and focused follow-up",
+      );
+      return;
+    }
     await learning.normalChat(
       chat,
       "Summarize the presentation in three short points, without making a course.",
