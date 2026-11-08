@@ -200,3 +200,26 @@ test("automatic research offers official tools without forcing a search for stab
     webSearch: "required",
   });
 });
+
+test("ranked excerpts retain the original page label when the relevant passage is deep inside a long page", () => {
+  const text =
+    "[Page 1]\n" +
+    "Introduction. ".repeat(1000) +
+    "\n[Page 12]\n" +
+    "Background without the requested concept. ".repeat(220) +
+    "Polymorphism uses virtual dispatch to select an override at runtime. ".repeat(
+      60,
+    );
+  const excerpt = documentExcerpt(
+    { name: "long.pdf", kind: "pdf", text, images: [] },
+    "Explain polymorphism and virtual dispatch",
+    4000,
+  );
+  assert.ok(excerpt.length <= 4000);
+  const passage = excerpt
+    .split("\n[…]\n")
+    .find((part) => part.includes("Polymorphism"));
+  assert.ok(passage, "The relevant passage must be selected");
+  assert.match(passage, /^\[Page 12\]/);
+  assert.match(excerpt, /Selected excerpts only/);
+});

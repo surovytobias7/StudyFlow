@@ -116,7 +116,11 @@ async function call<T>(action: string, value?: unknown): Promise<T> {
   if (!result.ok) throw new Error(result.error ?? "Operation failed.");
   return result.data as T;
 }
-function RichText({ children }: { children: string }) {
+const RichText = React.memo(function RichText({
+  children,
+}: {
+  children: string;
+}) {
   const [linkError, setLinkError] = useState("");
   return (
     <>
@@ -151,7 +155,7 @@ function RichText({ children }: { children: string }) {
       {linkError && <small role="alert">{linkError}</small>}
     </>
   );
-}
+});
 function WebSearchToggle({
   enabled,
   onChange,

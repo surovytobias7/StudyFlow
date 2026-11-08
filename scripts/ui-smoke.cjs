@@ -864,6 +864,9 @@ app
     await waitFor(
       "!!document.querySelector('.quiz-feedback.incorrect') && !document.querySelector('.quiz-loading')",
     );
+    await waitFor(
+      "document.activeElement === document.querySelector('.quiz-next')",
+    );
     await click('[aria-label="Close quiz"]');
     await window.loadFile(join(root, "dist-ui", "index.html"));
     await waitFor("!!document.querySelector('.lesson-heading')");
@@ -871,7 +874,13 @@ app
     await waitFor(
       "!!document.querySelector('.quiz-feedback.incorrect') && !document.querySelector('.quiz-loading')",
     );
-    await click(".quiz-next");
+    await waitFor(
+      "document.activeElement === document.querySelector('.quiz-next')",
+    );
+    window.webContents.focus();
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Return" });
+    window.webContents.sendInputEvent({ type: "char", keyCode: "\r" });
+    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Return" });
     await waitFor(
       "document.querySelectorAll('.quiz-option').length===4 && !document.querySelector('.quiz-feedback')",
     );
@@ -947,7 +956,7 @@ app
     assert.equal(store.courses().length, 2);
     await click('[aria-label="Close quiz"]');
     console.info(
-      "PASS: interactive A-D quiz, hidden answers, wrong/correct feedback, persisted resume, next, score/mistake review, written code feedback, natural-language Normal Chat quiz and unchanged lesson progress",
+      "PASS: interactive A-D quiz, hidden answers, wrong/correct feedback, keyboard focus/Enter next, persisted resume, score/mistake review, written code feedback, natural-language Normal Chat quiz and unchanged lesson progress",
     );
   })
   .catch((error) => {

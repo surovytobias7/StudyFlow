@@ -197,3 +197,97 @@ test("subscription-limit errors preserve conversation state and do not retry ano
     store.close();
   }
 });
+
+test("study mode saves the question before model discovery and retains partial output on interruption", async () => {
+  const { store, learning, connection } = setup();
+  try {
+    const course = store.create(
+      {
+        id: randomUUID(),
+        name: "Notes",
+        kind: "txt",
+        text: "[Page 1]\nVirtual dispatch",
+        images: [],
+        warning: "",
+      },
+      {
+        title: "OOP",
+        lessons: [
+          {
+            title: "Polymorphism",
+            objective: "Understand dispatch",
+            references: ["Page 1"],
+          },
+        ],
+      },
+    );
+    const lesson = course.lessons[0]!.id;
+    store.activate(lesson);
+    store.setting("model", "");
+    await assert.rejects(
+      learning.chat(lesson, "Keep this offline question"),
+      /Unexpected model discovery/,
+    );
+    assert.equal(
+      store.messages(lesson).at(-1)?.content,
+      "Keep this offline question",
+    );
+    store.setting("model", "test-model");
+    connection.generate = async (_m, _i, _input, delta) => {
+      delta("Partial study answer");
+      throw new Error("Interrupted");
+    };
+    await assert.rejects(
+      learning.chat(lesson, "Keep the partial answer"),
+      /Interrupted/,
+    );
+    assert.equal(
+      store.messages(lesson).at(-1)?.content,
+      "Partial study answer",
+    );
+    assert.equal(store.messages(lesson).at(-1)?.status, "interrupted");
+    assert.equal(store.snapshot().course!.completed, 0);
+  } finally {
+    store.close();
+  }
+});
+
+test("long study discussions retain the initial lesson explanation and newest follow-up", async () => {
+  const { store, learning, requests } = setup();
+  try {
+    const course = store.create(
+      {
+        id: randomUUID(),
+        name: "Notes",
+        kind: "txt",
+        text: "[Page 1]\nVirtual dispatch",
+        images: [],
+        warning: "",
+      },
+      {
+        title: "OOP",
+        lessons: [
+          {
+            title: "Polymorphism",
+            objective: "Understand dispatch",
+            references: ["Page 1"],
+          },
+        ],
+      },
+    );
+    const lesson = course.lessons[0]!.id;
+    store.addMessage(
+      lesson,
+      "assistant",
+      "INITIAL_LESSON_EXPLANATION about dispatch",
+    );
+    for (let i = 0; i < 40; i++)
+      store.addMessage(lesson, i % 2 ? "assistant" : "user", `Follow-up ${i}`);
+    await learning.chat(lesson, "Connect this to the original explanation");
+    const input = JSON.stringify(requests[0]!.input);
+    assert.match(input, /INITIAL_LESSON_EXPLANATION/);
+    assert.match(input, /Follow-up 39/);
+  } finally {
+    store.close();
+  }
+});

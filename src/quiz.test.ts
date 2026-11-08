@@ -593,3 +593,49 @@ test("large lesson practice bounds source/history and stays scoped to the lesson
     store.close();
   }
 });
+
+test("quiz context honors a named older document and preserves the original lesson explanation", async () => {
+  const { store, learning, requests, course } = setup();
+  try {
+    const chat = store.createNormalConversation("en").conversation!.id;
+    for (let i = 0; i < 10; i++)
+      store.addNormalMessage(chat, "user", "Read", [
+        {
+          name: i ? `notes-${i}.txt` : "important-original.pdf",
+          kind: "txt",
+          text: i ? `OTHER_DOCUMENT_${i}` : "SPECIFIC_ORIGINAL_DOCUMENT",
+          images: [],
+        },
+      ]);
+    await learning.generateQuiz(
+      { conversationId: chat, scope: "chat" },
+      "Give two questions about important-original.pdf",
+    );
+    assert.match(
+      JSON.stringify(requests.at(-1)!.input),
+      /SPECIFIC_ORIGINAL_DOCUMENT/,
+    );
+    const lesson = course.lessons[0]!.id;
+    store.addMessage(
+      lesson,
+      "assistant",
+      "INITIAL_LESSON_CONTEXT: instances have independent state.",
+    );
+    for (let i = 0; i < 20; i++)
+      store.addMessage(
+        lesson,
+        i % 2 ? "assistant" : "user",
+        `More discussion ${i}: ` + "detail ".repeat(150),
+      );
+    await learning.generateQuiz(
+      { lessonId: lesson, scope: "lesson" },
+      "Give two questions",
+    );
+    const input = JSON.stringify(requests.at(-1)!.input);
+    assert.match(input, /INITIAL_LESSON_CONTEXT/);
+    assert.match(input, /More discussion 19/);
+    assert.ok(input.length < 15000);
+  } finally {
+    store.close();
+  }
+});

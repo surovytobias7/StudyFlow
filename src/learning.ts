@@ -5,6 +5,8 @@ import {
   scopedMaterial,
   documentExcerpt,
   requestedRange,
+  selectDocuments,
+  lessonHistory,
   type StudyScope,
 } from "./document-context.js";
 import { searchOptions, researchInstructions } from "./search.js";
@@ -136,6 +138,9 @@ export class Learning {
         )
       )
         return this.store.snapshot(lesson.courseId);
+      // Persist the student's question before discovery/network/source work can
+      // fail, just as Normal Chat does. Progress remains application-controlled.
+      if (question) this.store.addMessage(lessonId, "user", question);
       const model = await this.model();
       const materials = this.store.materials(lesson.courseId);
       const languageCode =
@@ -159,15 +164,14 @@ export class Learning {
         question || lesson.objective,
         45000,
       );
-      const history = existing
-        .filter((m) => m.status === "complete")
-        .slice(-30)
-        .map((m) => ({ role: m.role, content: m.content }));
+      const history = lessonHistory(existing).map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
       const webInstructions = searchInstructions;
       const prompt =
         question ||
         "Teach this lesson clearly: explain what, why, how and when, with a meaningful example and essential limitations. Stay within this lesson and then wait for my questions.";
-      if (question) this.store.addMessage(lessonId, "user", question);
       let output = "";
       try {
         const text = await this.connection.generate(
@@ -247,17 +251,7 @@ export class Learning {
       }[] = [];
       if (documents.size) {
         const content: Record<string, string>[] = [];
-        const selected = [...documents.values()]
-          .map((file, index) => ({
-            file,
-            index,
-            score: question.toLowerCase().includes(file.name.toLowerCase())
-              ? 1
-              : 0,
-          }))
-          .sort((a, b) => b.score - a.score || b.index - a.index)
-          .slice(0, 8)
-          .sort((a, b) => a.index - b.index);
+        const selected = selectDocuments([...documents.values()], question);
         const budget = Math.floor(90000 / selected.length);
         content.push({
           type: "input_text",

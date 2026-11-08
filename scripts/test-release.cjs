@@ -7,6 +7,7 @@ const os = require("node:os");
 const net = require("node:net");
 const { spawn } = require("node:child_process");
 const root = path.resolve(__dirname, "..");
+const expectedVersion = require(path.join(root, "package.json")).version;
 const output = path.join(root, "artifacts", "release-verification");
 const executable = path.resolve(
   process.argv[2] ||
@@ -373,6 +374,30 @@ async function main() {
     pass(
       "Dashboard progress, normal-chat history and response-language preference remain intact",
     );
+    const offlineQuestion =
+      "Preserve this study question while ChatGPT is disconnected";
+    await assert.rejects(
+      command("chat", {
+        lessonId: study.lessons[0].id,
+        question: offlineQuestion,
+        mode: "chat",
+      }),
+      /Connect your ChatGPT account first/,
+    );
+    assert.equal(
+      (await command("snapshot")).messages.at(-1).content,
+      offlineQuestion,
+    );
+    await close();
+    await start();
+    assert.equal(
+      (await command("snapshot")).messages.at(-1).content,
+      offlineQuestion,
+    );
+    assert.equal((await command("snapshot")).course.completed, 1);
+    pass(
+      "Disconnected study question survives a failed real connection attempt and full installed process restart",
+    );
     await close();
     await fs.writeFile(
       path.join(output, "local-update-result.json"),
@@ -481,11 +506,14 @@ async function main() {
     pass(
       "Installed EXE generates four real Slovak ABCD questions with progress events, hidden keys and balanced options",
     );
-    await screenshot("quiz-0.1.5-question.png");
+    await screenshot(`quiz-${expectedVersion}-question.png`);
     await click(".quiz-option", (bank.questions[0].correctOption + 1) % 4);
     await click(".quiz-submit");
     await waitFor(
       "!!document.querySelector('.quiz-feedback.incorrect')&&!document.querySelector('.quiz-loading')",
+    );
+    await waitFor(
+      "document.activeElement===document.querySelector('.quiz-next')",
     );
     await close();
     await start();
@@ -518,7 +546,7 @@ async function main() {
     pass(
       "All four submissions, correct/incorrect explanations and 75% results work without completing the lesson",
     );
-    await screenshot("quiz-0.1.5-results.png");
+    await screenshot(`quiz-${expectedVersion}-results.png`);
     await close();
     await fs.writeFile(
       path.join(output, "quiz-update-result.json"),
@@ -527,6 +555,7 @@ async function main() {
           completedAt: new Date().toISOString(),
           executable,
           model,
+          expectedVersion,
           timing,
           steps,
         },

@@ -5,6 +5,8 @@ import type { NormalAttachment } from "./domain.js";
 import {
   documentExcerpt,
   scopedMaterial,
+  selectDocuments,
+  lessonDiscussion,
   type StudyScope,
 } from "./document-context.js";
 import type { Store } from "./database.js";
@@ -179,7 +181,9 @@ export class Quizzes {
     const documents = new Map<string, NormalAttachment>();
     for (const m of snapshot.messages)
       for (const a of m.attachments) documents.set(a.name, a);
-    const docs = [...documents.values()].slice(-8);
+    const docs = selectDocuments([...documents.values()], request).map(
+      (item) => item.file,
+    );
     return {
       language:
         snapshot.conversation.aiLanguage ?? snapshot.settings.tutorLanguage,
@@ -217,13 +221,7 @@ export class Quizzes {
     if ("lessonId" in target)
       context.context +=
         "\nCurrent explanation and student questions (adapt level, target misunderstandings):\n" +
-        this.store
-          .messages(target.lessonId)
-          .filter((m) => m.status === "complete")
-          .slice(-12)
-          .map((m) => `${m.role}: ${m.content}`)
-          .join("\n")
-          .slice(-12000);
+        lessonDiscussion(this.store.messages(target.lessonId));
     const preferences = practicePreferences(request, custom);
     const requirements = `Generate exactly ${preferences.count} questions, ALL type ${preferences.type}. Difficulty: ${preferences.difficulty === "auto" ? "appropriate to the current lesson and student context, gradually increasing" : preferences.difficulty}. Do not switch formats merely because the subject is programming or mathematics. Choose important concepts and realistic applications yourself. Avoid basics already demonstrated, duplicate questions and near-duplicates.`;
     const choice =

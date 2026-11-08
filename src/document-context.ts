@@ -1,6 +1,62 @@
 import { z } from "zod";
 import type { Material, NormalAttachment } from "./domain.js";
 
+// Conversation resources outlive the rolling message window. Keep the existing
+// recency order, but make an explicitly named older document available as well.
+export function selectDocuments<T extends { name: string }>(
+  documents: T[],
+  request: string,
+) {
+  const question = request.toLocaleLowerCase();
+  return documents
+    .map((file, index) => ({
+      file,
+      index,
+      named: question.includes(file.name.toLocaleLowerCase()) ? 1 : 0,
+    }))
+    .sort((a, b) => b.named - a.named || b.index - a.index)
+    .slice(0, 8)
+    .sort((a, b) => a.index - b.index);
+}
+
+export function lessonHistory<T extends { role: string; status: string }>(
+  messages: T[],
+  limit = 30,
+): T[] {
+  const complete = messages.filter((message) => message.status === "complete");
+  const initial = complete.find((message) => message.role === "assistant");
+  const recent = complete.slice(-limit);
+  return initial && !recent.includes(initial)
+    ? [initial, ...recent.slice(1)]
+    : recent;
+}
+
+export function lessonDiscussion(
+  messages: { role: string; status: string; content: string }[],
+  budget = 12000,
+) {
+  const history = lessonHistory(messages, 12);
+  const text = history
+    .map((message) => `${message.role}: ${message.content}`)
+    .join("\n");
+  if (text.length <= budget) return text;
+  if (history[0]?.role !== "assistant") return text.slice(-budget);
+  const initial = `assistant: ${history[0].content}`.slice(
+    0,
+    Math.floor(budget / 2),
+  );
+  const divider = "\n[Recent follow-up discussion]\n";
+  const recent = history
+    .slice(1)
+    .map((message) => `${message.role}: ${message.content}`)
+    .join("\n");
+  return (
+    initial +
+    divider +
+    recent.slice(-Math.max(0, budget - initial.length - divider.length))
+  );
+}
+
 export const studyScopeSchema = z
   .object({
     instructions: z.string().trim().max(4000).default(""),
@@ -59,24 +115,43 @@ export function documentExcerpt(
   }
   if (text.length <= budget) return text;
   const terms = question.toLocaleLowerCase().match(/[\p{L}\p{N}]{4,}/gu) ?? [];
-  const parts = text.match(/[\s\S]{1,3500}/g) ?? [];
-  const ranked = parts.map((part, index) => ({
-    part,
-    index,
-    score: terms.reduce(
-      (n, t) => n + (part.toLocaleLowerCase().includes(t) ? 1 : 0),
-      0,
-    ),
-  }));
-  const selected = ranked
-    .sort((a, b) => b.score - a.score || a.index - b.index)
-    .slice(0, Math.max(1, Math.floor(budget / 3500)))
-    .sort((a, b) => a.index - b.index);
+  const parts: { part: string; index: number; score: number; label: string }[] =
+    [];
+  for (const unit of text.split(/(?=\[(?:Page|Slide) \d+\])/)) {
+    const label = unit.match(/^\[(?:Page|Slide) \d+\]/)?.[0] ?? "";
+    const body = label ? unit.slice(label.length).trimStart() : unit;
+    for (let offset = 0; offset < body.length; offset += 3500) {
+      const chunk = body.slice(offset, offset + 3500);
+      const lower = chunk.toLocaleLowerCase();
+      parts.push({
+        part: (label ? `${label}\n` : "") + chunk,
+        label,
+        index: parts.length,
+        score: terms.reduce(
+          (score, term) => score + (lower.includes(term) ? 1 : 0),
+          0,
+        ),
+      });
+    }
+  }
+  const notice =
+    "\n[Selected excerpts only; the full document is saved locally. Ask for a specific page, slide or topic for more detail.]";
+  const separator = "\n[…]\n";
+  let remaining = Math.max(0, budget - notice.length);
+  const selected: { part: string; index: number }[] = [];
+  for (const part of parts.sort(
+    (a, b) => b.score - a.score || a.index - b.index,
+  )) {
+    const available = remaining - (selected.length ? separator.length : 0);
+    if (available <= part.label.length + 24) break;
+    const excerpt = part.part.slice(0, available);
+    selected.push({ part: excerpt, index: part.index });
+    remaining -= excerpt.length + (selected.length > 1 ? separator.length : 0);
+  }
   return (
     selected
-      .map((p) => p.part)
-      .join("\n[…]\n")
-      .slice(0, budget) +
-    "\n[Selected excerpts only; the full document is saved locally. Ask for a specific page, slide or topic for more detail.]"
-  );
+      .sort((a, b) => a.index - b.index)
+      .map((part) => part.part)
+      .join(separator) + notice
+  ).slice(0, budget);
 }

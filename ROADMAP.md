@@ -44,6 +44,21 @@ On 2026-10-30 the user completed OAuth. Authenticated model discovery and a real
 - Live Normal Chat acceptance on 2026-10-31: three real streamed Responses requests through the existing ChatGPT plan; Slovak no-file reply, English follow-up using local history, English attachment summarized in Slovak. Confirmed no course/progress creation. Evidence: `%APPDATA%/StudyFlow/acceptance/normal-2026-10-31T18-03-40-770Z/result.json`.
 - Localized app-owned connection/import/error notices and attachment warnings; provider diagnostics retain their original error codes. Conversation and course language overrides preserve history/progress. Attachment limits are validated again at the sending IPC boundary.
 
+## Reliability and learning-context review: 0.1.6 (2026-11-08)
+Review priorities: protect study questions on connection failures; keep source references accurate in large documents; retain the lesson foundation in long discussions; consistently honor named chat documents; avoid repeated Markdown/math work while streaming; keep keyboard focus usable after quiz submission. These address existing daily workflows without adding providers, billing, database tables or dependencies.
+
+- [x] Reproduced four failures with new regressions before fixes: lost study question on discovery failure, lost initial lesson explanation, missing named older quiz document and lost page labels in ranked excerpts. Evidence: `artifacts/audit-before-0.1.6.log`.
+- [x] Study questions now persist before model discovery/source processing; interrupted answers retain their partial text. Current lesson and completion remain unchanged.
+- [x] Page-aware ranked excerpts retain actual page/slide labels on continuation chunks and fit the full character budget including omission notices. Full original material stays local and unchanged.
+- [x] Shared document selection prioritizes explicitly named older documents before recent ones in both Normal Chat and chat quizzes (up to 8). Long study conversations retain the original lesson explanation alongside recent turns; quiz discussion stays within 12k characters.
+- [x] Memoized existing Markdown/math/code message rendering avoids repeated work on unchanged messages during streaming. Quiz feedback moves keyboard focus to Next/Show results.
+- [x] Backend/UI build and 55/55 automated tests passed. New tests cover real failure conditions, long-page references, named-document selection, bounded lesson context and interrupted persistence.
+- [x] Native Electron UI regression passed, including actual keyboard focus and Enter navigation after feedback, unchanged Normal Chat/Study progress, scroll behavior, Markdown/math/code, language switching and quiz restart. A first synthetic Enter test omitted the character event; corrected the keyboard harness and reran successfully. Quiz screenshots inspected.
+- [x] LIVE `gpt-6-luna` context acceptance passed: named oldest document among 10 files; relevant passage deep inside Page 12 with actual page attribution; original explanation recalled after 36 turns; two-question document quiz and SQLite reopen with progress unchanged. Evidence: `artifacts/context-live-0.1.6.json`. No extra AI request is introduced by the context improvements.
+- [ ] Windows production package, existing-installation update, shortcut and data-preservation verification.
+
+Additional review findings are deferred to keep the release bounded: durable per-conversation unsent drafts, long-history summarization, wider semantic quiz-quality evaluations, OCR/complete PPTX graphics, installer signing/automatic updates, account-revocation and physical-DPI coverage. These need separate implementation/acceptance work; they are not claimed complete. Existing chat deletion behavior remains unchanged.
+
 ## Quiz performance update: 0.1.5 (2026-11-08)
 - [x] Diagnosed real 4-question latency on the selected `gpt-6-luna`: programming 67.53s, mathematics 53.26s, theory 59.68s. Two sequential full-bank generations consumed >99.9% of service time; no search or retries occurred.
 - [x] Replaced the unconditional second full-bank AI audit with in-request solution/distractor checking. Valid output takes one request; malformed output gets one bounded repair. No provider/model/billing changes.

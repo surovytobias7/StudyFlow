@@ -107,6 +107,10 @@ export function QuizDialog({
       ?.querySelector<HTMLElement>(".quiz-question, .quiz-results h3")
       ?.focus({ preventScroll: true });
   }, [quiz?.id, quiz?.position]);
+  useEffect(() => {
+    if (!busy && quiz?.feedback)
+      dialog.current?.querySelector<HTMLButtonElement>(".quiz-next")?.focus();
+  }, [busy, quiz?.id, quiz?.position, quiz?.feedback]);
   return (
     <dialog
       ref={dialog}
