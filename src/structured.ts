@@ -33,6 +33,7 @@ export async function structured<T>(args: {
   input: unknown[];
   validate?: (value: T) => void;
   recovering?: () => void;
+  delta?: (text: string) => void;
   error: string;
 }) {
   const { connection, model, schema, name } = args;
@@ -45,7 +46,7 @@ export async function structured<T>(args: {
       model,
       args.instructions,
       input,
-      () => {},
+      args.delta ?? (() => {}),
       {
         jsonSchema: { name, schema: format },
       },

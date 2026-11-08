@@ -4,17 +4,23 @@ const slovak: Record<string, string> = {
   "Repairing learning path…": "Opravujem študijný plán…",
   "Organizing topics into lessons…": "Usporiadavam témy do lekcií…",
   "Checking learning path coverage…": "Overujem pokrytie učiva…",
-  "The tutor could not produce a valid quiz after automatic recovery. Your saved work is unchanged. Please try again.": "Kvíz sa nepodarilo overiť ani po automatickej oprave. Uložená práca je zachovaná. Skús to znova.",
-  "The tutor could not verify the learning path coverage. Please try generating it again.": "Nepodarilo sa overiť pokrytie učiva. Skús plán vytvoriť znova.",
+  "The tutor could not produce a valid quiz after automatic recovery. Your saved work is unchanged. Please try again.":
+    "Kvíz sa nepodarilo overiť ani po automatickej oprave. Uložená práca je zachovaná. Skús to znova.",
+  "The tutor could not verify the learning path coverage. Please try generating it again.":
+    "Nepodarilo sa overiť pokrytie učiva. Skús plán vytvoriť znova.",
   "Generating quiz questions…": "Vytváram otázky kvízu…",
   "Checking question quality…": "Overujem kvalitu otázok…",
   "Quiz not found.": "Kvíz sa nenašiel.",
-  "The tutor returned an invalid quiz. Please try again.": "Tútor vrátil neplatný kvíz. Skús ho vytvoriť znova.",
-  "The quiz question changed. Reopen the quiz.": "Otázka kvízu sa zmenila. Otvor kvíz znova.",
+  "The tutor returned an invalid quiz. Please try again.":
+    "Tútor vrátil neplatný kvíz. Skús ho vytvoriť znova.",
+  "The quiz question changed. Reopen the quiz.":
+    "Otázka kvízu sa zmenila. Otvor kvíz znova.",
   "Choose an answer before submitting.": "Pred odovzdaním vyber odpoveď.",
   "Write an answer before submitting.": "Pred odovzdaním napíš odpoveď.",
-  "Submit your answer before continuing.": "Pred pokračovaním odovzdaj odpoveď.",
-  "The tutor returned invalid exercise feedback. Try submitting again.": "Tútor vrátil neplatné hodnotenie. Skús odpoveď odovzdať znova.",
+  "Submit your answer before continuing.":
+    "Pred pokračovaním odovzdaj odpoveď.",
+  "The tutor returned invalid exercise feedback. Try submitting again.":
+    "Tútor vrátil neplatné hodnotenie. Skús odpoveď odovzdať znova.",
   "Enter a valid page or slide range.":
     "Zadaj platný rozsah strán alebo snímok.",
   "The requested pages or slides were not found in this document.":
@@ -186,6 +192,9 @@ export function localizeMessage(text: string, language: string): string {
     );
   if (language !== "sk" || !text) return text;
   if (slovak[text]) return slovak[text];
+  const writing = /^Writing question (\d+)\/(\d+)$/.exec(text);
+  if (writing) return `Pripravujem otázku ${writing[1]}/${writing[2]}`;
+  if (text === "Saving quiz…") return "Ukladám kvíz…";
   const analysis = /^Analyzing material (\d+)\/(\d+)$/.exec(text);
   if (analysis) return `Analyzujem materiál ${analysis[1]}/${analysis[2]}`;
   const http =

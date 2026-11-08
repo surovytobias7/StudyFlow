@@ -398,6 +398,144 @@ async function main() {
   await fs.writeFile(path.join(profile, "account.credentials"), before, {
     mode: 0o600,
   });
+  if (process.argv.includes("--quiz-update")) {
+    const { pathToFileURL } = require("node:url");
+    const { randomUUID } = require("node:crypto");
+    const { DatabaseSync } = require("node:sqlite");
+    const { Store } = await import(
+      pathToFileURL(path.join(root, "dist", "database.js")).href
+    );
+    const original = new DatabaseSync(
+      path.join(path.dirname(originalCredentials), "studyflow.sqlite"),
+      { readOnly: true },
+    );
+    const model = original
+      .prepare("SELECT value FROM Settings WHERE key='model'")
+      .get().value;
+    original.close();
+    const store = new Store(path.join(profile, "studyflow.sqlite"));
+    store.setting("model", model);
+    store.setting("tutorLanguage", "sk");
+    const study = store.create(
+      {
+        id: randomUUID(),
+        name: "Virtual methods.txt",
+        kind: "txt",
+        images: [],
+        warning: "",
+        text: "[Slide 1]\nC# virtual methods support runtime dispatch through base references. Derived methods use override. The new keyword hides a method and static reference type selects the hidden member. Abstract classes cannot be instantiated; concrete derived classes implement abstract methods and inherit concrete methods.",
+      },
+      {
+        title: "Installed quiz performance",
+        lessons: [
+          {
+            title: "Virtual methods",
+            objective: "Distinguish override from method hiding",
+            references: ["Slide 1"],
+          },
+        ],
+      },
+    );
+    const target = { lessonId: study.lessons[0].id, scope: "lesson" };
+    store.activate(target.lessonId);
+    store.close();
+    const status = await start();
+    assert.equal(status.connected, true);
+    await waitFor("!!document.querySelector('.lesson-heading')");
+    await client.evaluate(
+      "window.quizEvents=[];window.studyflow.onEvent(e=>{if(e.kind==='processing')window.quizEvents.push({text:e.text,at:performance.now()})});window.quizStarted=performance.now()",
+    );
+    await textButton("Quiz");
+    await waitFor(
+      "document.querySelectorAll('.quiz-option').length===4&&!document.querySelector('.quiz-loading')",
+      180000,
+    );
+    const timing = await client.evaluate(
+      "({totalMs:performance.now()-window.quizStarted,events:window.quizEvents})",
+    );
+    const saved = (await command("quizList", target))[0];
+    const view = await command("quizGet", saved.id);
+    assert.equal(view.total, 4);
+    assert.doesNotMatch(
+      JSON.stringify(view),
+      /correctOption|optionExplanations|rubric|sampleAnswer/,
+    );
+    const database = new DatabaseSync(path.join(profile, "studyflow.sqlite"), {
+      readOnly: true,
+    });
+    const bank = JSON.parse(
+      database.prepare("SELECT payload FROM Quizzes WHERE id=?").get(saved.id)
+        .payload,
+    );
+    database.close();
+    assert.deepEqual(
+      bank.questions.map((q) => q.correctOption).sort(),
+      [0, 1, 2, 3],
+    );
+    assert.ok(
+      timing.events.some((e) => e.text.startsWith("Writing question ")),
+    );
+    assert.ok(
+      !timing.events.some((e) => e.text.includes("Checking question quality")),
+    );
+    pass(
+      "Installed EXE generates four real Slovak ABCD questions with progress events, hidden keys and balanced options",
+    );
+    await screenshot("quiz-0.1.5-question.png");
+    await click(".quiz-option", (bank.questions[0].correctOption + 1) % 4);
+    await click(".quiz-submit");
+    await waitFor(
+      "!!document.querySelector('.quiz-feedback.incorrect')&&!document.querySelector('.quiz-loading')",
+    );
+    await close();
+    await start();
+    await waitFor("!!document.querySelector('.lesson-heading')");
+    await textButton("Quiz");
+    await waitFor(
+      "!!document.querySelector('.quiz-feedback.incorrect')&&!document.querySelector('.quiz-loading')",
+    );
+    assert.equal(
+      (await command("quizGet", saved.id)).feedback.correctOption,
+      bank.questions[0].correctOption,
+    );
+    pass(
+      "Full installed process restart restores the same shuffled question, submitted answer and feedback",
+    );
+    await click(".quiz-next");
+    for (let index = 1; index < 4; index++) {
+      await waitFor(
+        "!!document.querySelector('.quiz-submit')&&!document.querySelector('.quiz-loading')",
+      );
+      await click(".quiz-option", bank.questions[index].correctOption);
+      await click(".quiz-submit");
+      await waitFor(
+        "!!document.querySelector('.quiz-feedback.correct')&&!document.querySelector('.quiz-loading')",
+      );
+      await click(".quiz-next");
+    }
+    await waitFor("document.querySelector('.quiz-score')?.textContent==='75%'");
+    assert.equal((await command("snapshot")).course.completed, 0);
+    pass(
+      "All four submissions, correct/incorrect explanations and 75% results work without completing the lesson",
+    );
+    await screenshot("quiz-0.1.5-results.png");
+    await close();
+    await fs.writeFile(
+      path.join(output, "quiz-update-result.json"),
+      JSON.stringify(
+        {
+          completedAt: new Date().toISOString(),
+          executable,
+          model,
+          timing,
+          steps,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
   const pdf = path.join(temp, "lesson.pdf");
   await createPdf(pdf);
   const invalidPdf = path.join(temp, "invalid.pdf");
@@ -521,7 +659,7 @@ async function main() {
   await screenshot("live-interactive-quiz.png");
   await click('[aria-label="Close quiz"]');
   pass(
-    "Optional interactive A-D exercise is independently checked, submitted and explained without completing the lesson",
+    "Optional interactive A-D exercise is validated, submitted and explained without completing the lesson",
   );
   await click(".next-button");
   await waitFor(

@@ -1,7 +1,7 @@
 # StudyFlow — canonical roadmap
 
 ## Product invariant
-Release target achieved for the core workflow: one usable Windows 10 x64 desktop application. Installed v0.1.4 in the existing location; current-release local and live installed acceptance passed. Optional limitations remain explicitly deferred below.
+Release target achieved for the core workflow: one usable Windows 10 x64 desktop application. Installed v0.1.5 in the existing location; current quiz-performance, local and focused live installed acceptance passed. Broader v0.1.4 acceptance remains recorded below. Optional limitations remain explicitly deferred.
 Teach exactly one lesson at a time. Every lesson has its own persistent conversation. Student navigation controls the active lesson. Database state, never AI output, determines progress. Exercises are optional.
 Normal Chat is a separate general-purpose conversation mode with its own conversation/message tables; it can be used without a course or material and never changes study progress. Both modes share the existing official ChatGPT connection.
 
@@ -26,7 +26,7 @@ On 2026-10-30 the user completed OAuth. Authenticated model discovery and a real
 3. **Core implemented:** PDF selectable text, PPTX actual slide order/embedded images, image/text import; bounded generation, validated plans and editable preview. Full slide rendering remains open.
 4. **Implemented:** focused tutor, scoped quick actions, separate lesson chats, learning-path sidebar, persisted active lesson.
 5. **Implemented and installed-tested:** complete/next, live deterministic progress, duplicate protection, undo, revisit, incomplete and review states.
-6. **Implemented:** interactive source-grounded quizzes and multiple exercise formats, local choice grading, hidden answer keys, AI quality review and written feedback, persisted results/revision/resume, math rendering and highlighted code. Deterministic written mathematics verification remains deferred.
+6. **Implemented:** interactive source-grounded quizzes and multiple exercise formats, local choice grading, hidden answer keys, in-request AI solution/distractor checks and written feedback, persisted results/revision/resume, math rendering and highlighted code. Deterministic written mathematics verification remains deferred.
 7. **Core implemented:** readable webpages, attempted public captions, transcript fallback, responsive T3-style UI, source reader and Windows NSIS installer. Final current-release installed acceptance is recorded above.
 
 ## Completed validation
@@ -44,7 +44,21 @@ On 2026-10-30 the user completed OAuth. Authenticated model discovery and a real
 - Live Normal Chat acceptance on 2026-10-31: three real streamed Responses requests through the existing ChatGPT plan; Slovak no-file reply, English follow-up using local history, English attachment summarized in Slovak. Confirmed no course/progress creation. Evidence: `%APPDATA%/StudyFlow/acceptance/normal-2026-10-31T18-03-40-770Z/result.json`.
 - Localized app-owned connection/import/error notices and attachment warnings; provider diagnostics retain their original error codes. Conversation and course language overrides preserve history/progress. Attachment limits are validated again at the sending IPC boundary.
 
-## Current release: 0.1.4 (2026-11-03)
+## Quiz performance update: 0.1.5 (2026-11-08)
+- [x] Diagnosed real 4-question latency on the selected `gpt-6-luna`: programming 67.53s, mathematics 53.26s, theory 59.68s. Two sequential full-bank generations consumed >99.9% of service time; no search or retries occurred.
+- [x] Replaced the unconditional second full-bank AI audit with in-request solution/distractor checking. Valid output takes one request; malformed output gets one bounded repair. No provider/model/billing changes.
+- [x] Compact choice-only JSON schema enforces requested count/type/difficulty, exactly four distinct ABCD options and one valid answer index. Removed duplicated overall feedback and unused written fields from choice generation; normalized into the existing persisted quiz shape without migration.
+- [x] Locally shuffled paired options/feedback and randomized balanced answer slots fix all-A banks. Existing saved quizzes retain their original order and answers. Correct-answer feedback no longer repeats itself.
+- [x] Bounded large lesson context to 18k source characters and 12k discussion characters, retaining explicit whole-course coverage. Stream-derived question preparation status exposes no question text or answer keys. Regeneration shows generation status; independent post-save UI refreshes run together.
+- [x] TypeScript/backend/UI build and 51/51 automated tests passed, including single-request generation, exact shape, paired shuffle/grading, persistence, malformed recovery, no-search streaming progress and scoped large-context bounds.
+- [x] Final live comparison on the same `gpt-6-luna` and three sources: programming 31.85s (67.53s before), mathematics 20.39s (53.26s), theory 32.52s (59.68s), one request each, no search/repair. Average reduction 53.0%. Earlier optimized probe was 25.9–27.3s; subsequent inspection found a wrong distractor-feedback arithmetic claim and an underspecified code signature. Prompt checks now explicitly verify feedback calculations, code assumptions and topic language; final 12-question sample was inspected. This is sample evidence, not guaranteed semantic correctness or a provider latency SLA. Evidence: `artifacts/quiz-performance-0.1.5.json`; raw outputs remain in the temporary diagnostic folder.
+- [x] A deliberately truncated REAL generated response recovered with exactly one real AI repair (50.24s total), without dropping questions or fake fallback. Format/auth/usage error regressions passed.
+- [x] Native Electron UI regression passed for shuffled ABCD, submission, 75% results/mistakes, resume, selected coding, chat quizzes and unchanged lesson progress; existing chat/language/progress/zoom regressions passed. Captured quiz screenshot inspected.
+- [x] Production Windows package completed and existing installation updated to 0.1.5 (exit 0), with matching packaged/installed ASAR hashes. SQLite, encrypted credentials, Local State and all four saved material files were byte-identical across installation. Full backup: `%LOCALAPPDATA%/StudyFlow Backups/before-0.1.5-20261108-205622/`. Evidence: `artifacts/installation-0.1.5.json`.
+- [x] Installed EXE local regression passed for launch without servers, lesson/path completion/reversal, dashboard/history/languages and restart/zoom persistence. Focused LIVE installed quiz passed for four Slovak ABCD questions, streamed preparation status, private keys, balanced options, wrong/correct feedback, full process restart with unchanged shuffled question, all submissions, 75% result and unchanged lesson progress. That additional live generation took 40.86s; provider latency varies, so the three-source average is not a guarantee. Evidence: `artifacts/installed-local-0.1.5.log`, `artifacts/installed-quiz-0.1.5.log`, `artifacts/release-verification/quiz-update-result.json`; actual installed screenshots inspected.
+- [x] One uninstall registration at 0.1.5, one existing Desktop shortcut and one Start-menu shortcut. Original Desktop shortcut launched the updated installed EXE with a responding window; left open. All 14 preexisting database tables retained identical counts/content hashes after startup. Evidence: `artifacts/installation-0.1.5.json`, `artifacts/shortcut-launch-0.1.5.json`, `artifacts/profile-preservation-0.1.5.json`. Installer: `release/StudyFlow Setup 0.1.5.exe` (unsigned; no public release published).
+
+## Release: 0.1.4 (2026-11-03)
 - [x] Existing Normal Chat/document attachments, focused/full learning, lesson/path completion, languages, zoom and history retained.
 - [x] New courses: complete-source concept inventories, global topic/prerequisite grouping, independent coverage/source audit and saved concept mapping. Transport chunks never define lessons. Existing paths/progress are untouched. Real 6-slide OOP material produced 3 coherent lessons, plus a separate focused slide-5 lesson.
 - [x] Tutor: appropriate prerequisites, what/why/how/when, substantive examples/limitations, useful background knowledge, adaptive focused follow-ups and no fixed explanation word cap.
@@ -109,7 +123,7 @@ Evidence paths above are under `%APPDATA%/StudyFlow/acceptance/`; local regressi
 - More responsive/accessibility checks; third-party technical diagnostics remain verbatim when no application translation is available.
 
 ## Next steps
-Use the updated installed v0.1.4 through the existing desktop shortcut. Core improvements and installed acceptance are complete; do not expand the release scope. OCR, complete PPTX visual rendering, signing/automatic updates, account switching, physical DPI testing and deterministic written mathematics remain deferred. Keep this file as the only roadmap.
+Use the updated installed v0.1.5 through the existing desktop shortcut. The quiz optimization and installed checks are complete; monitor real lesson quality and latency during daily use before further model/reasoning changes. OCR, complete PPTX visual rendering, signing/automatic updates, account switching, physical DPI testing and deterministic written mathematics remain deferred. Keep this file as the only roadmap.
 
 ## Official sources checked
 - https://developers.openai.com/siwc/quickstart

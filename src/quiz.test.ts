@@ -10,6 +10,7 @@ import {
   parseQuiz,
   isQuizRequest,
   practicePreferences,
+  choiceGenerationSchema,
   type QuizData,
 } from "./quiz.js";
 
@@ -126,7 +127,7 @@ test("quiz schema rejects ambiguous structural answers and never treats ordinary
   assert.equal(isQuizRequest("Vytvor 5 otázok k celej prezentácii"), true);
   assert.equal(isQuizRequest("Explain this example more simply"), false);
 });
-test("quizzes verify generation twice, hide answer keys, grade choices locally, prevent duplicates and preserve progress after disk reopen", async () => {
+test("quizzes generate once, hide answer keys, grade shuffled choices locally and preserve progress after disk reopen", async () => {
   const dir = mkdtempSync(join(tmpdir(), "studyflow-quiz-")),
     file = join(dir, "test.sqlite");
   const context = setup(new Store(file));
@@ -141,8 +142,11 @@ test("quizzes verify generation twice, hide answer keys, grade choices locally, 
       target,
       "Give me two questions.",
     );
-    assert.equal(context.requests.length, 2);
-    assert.match(context.requests[1]!.instructions, /Independently audit/);
+    assert.equal(context.requests.length, 1);
+    assert.match(
+      context.requests[0]!.instructions,
+      /internally solve every question/,
+    );
     assert.match(context.requests[0]!.instructions, /Slovak/);
     assert.match(
       JSON.stringify(context.requests[0]!.input),
@@ -160,15 +164,37 @@ test("quizzes verify generation twice, hide answer keys, grade choices locally, 
       () => context.learning.quizzes.next(quiz.id, 0),
       /Submit your answer/,
     );
-    const wrong = await context.learning.answerQuiz(quiz.id, 0, "1");
+    const bank = JSON.parse(
+      store.db.prepare("SELECT payload FROM Quizzes WHERE id=?").get(quiz.id)!
+        .payload as string,
+    ) as QuizData;
+    const incorrect = bank.questions[0]!.options.indexOf(
+      "The source file containing a class",
+    );
+    const wrong = await context.learning.answerQuiz(
+      quiz.id,
+      0,
+      String(incorrect),
+    );
     assert.equal(wrong.feedback!.correct, false);
-    assert.equal(wrong.feedback!.correctOption, 0);
+    assert.equal(
+      wrong.feedback!.correctOption,
+      bank.questions[0]!.correctOption,
+    );
     assert.match(wrong.feedback!.explanation, /file stores source/);
-    await context.learning.answerQuiz(quiz.id, 0, "0");
+    await context.learning.answerQuiz(
+      quiz.id,
+      0,
+      String(bank.questions[0]!.correctOption),
+    );
     assert.equal(context.learning.quizzes.view(quiz.id).answered, 1);
     context.learning.quizzes.next(quiz.id, 0);
     assert.equal(context.learning.quizzes.next(quiz.id, 0).position, 1);
-    await context.learning.answerQuiz(quiz.id, 1, "1");
+    await context.learning.answerQuiz(
+      quiz.id,
+      1,
+      String(bank.questions[1]!.correctOption),
+    );
     const results = context.learning.quizzes.next(quiz.id, 1);
     assert.equal(results.complete, true);
     assert.equal(results.correct, 1);
@@ -178,7 +204,7 @@ test("quizzes verify generation twice, hide answer keys, grade choices locally, 
     );
     assert.equal(
       context.requests.length,
-      2,
+      1,
       "Choice grading must not make AI requests",
     );
     assert.deepEqual(store.snapshot().lessons, before.lessons);
@@ -368,7 +394,7 @@ test("malformed JSON, wrong answer encoding and missing questions recover once w
         { lessonId: course.lessons[0]!.id, scope: "lesson" },
         "Give two questions",
       );
-      assert.equal(calls, 3); // original + repair + independent audit
+      assert.equal(calls, 2); // original + one repair, no redundant audit
       assert.equal(quiz.total, 2);
       assert.equal(store.snapshot().course!.completed, 0);
     } finally {
@@ -410,6 +436,159 @@ test("unrecoverable quizzes and usage limits do not save partial banks or retry 
       /429/,
     );
     assert.equal(calls, 1);
+  } finally {
+    store.close();
+  }
+});
+
+test("compact ABCD generation enforces shape, balances answer slots and preserves paired feedback", async () => {
+  const { store, learning, connection, course } = setup();
+  const compact = {
+    title: "Four concepts",
+    questions: Array.from({ length: 4 }, (_, i) => ({
+      type: "multiple_choice" as const,
+      prompt: `Which outcome follows in scenario ${i + 1}?`,
+      topic: `Concept ${i + 1}`,
+      difficulty: "medium" as const,
+      options: [
+        "Correct outcome",
+        "Misunderstanding one",
+        "Misunderstanding two",
+        "Misunderstanding three",
+      ],
+      correctOption: 0,
+      optionExplanations: [
+        "The correct outcome follows from the stated rule.",
+        "The first misunderstanding reverses the rule.",
+        "The second misunderstanding ignores the condition.",
+        "The third misunderstanding applies an unrelated rule.",
+      ],
+      references: ["Slide 1"],
+    })),
+  };
+  try {
+    let calls = 0;
+    connection.generate = async (_m, _instructions, _input) => {
+      calls++;
+      return JSON.stringify(compact);
+    };
+    const schema = choiceGenerationSchema("multiple_choice", 4, "auto");
+    assert.throws(() =>
+      schema.parse({ ...compact, questions: compact.questions.slice(0, 3) }),
+    );
+    assert.throws(() =>
+      schema.parse({
+        ...compact,
+        questions: compact.questions.map((q) => ({
+          ...q,
+          options: q.options.slice(0, 3),
+        })),
+      }),
+    );
+    const view = await learning.generateQuiz(
+      { lessonId: course.lessons[0]!.id, scope: "lesson" },
+      "",
+    );
+    assert.equal(calls, 1);
+    const bank = JSON.parse(
+      store.db.prepare("SELECT payload FROM Quizzes WHERE id=?").get(view.id)!
+        .payload as string,
+    ) as QuizData;
+    assert.deepEqual(
+      [...bank.questions.map((q) => q.correctOption)].sort(),
+      [0, 1, 2, 3],
+    );
+    for (const q of bank.questions) {
+      assert.equal(q.options[q.correctOption!], "Correct outcome");
+      for (let i = 0; i < 4; i++) {
+        const original = compact.questions[0]!.options.indexOf(q.options[i]!);
+        assert.equal(
+          q.optionExplanations[i],
+          compact.questions[0]!.optionExplanations[original],
+        );
+      }
+    }
+    const correct = await learning.answerQuiz(
+      view.id,
+      0,
+      String(bank.questions[0]!.correctOption),
+    );
+    assert.equal(correct.feedback!.correct, true);
+    assert.equal(
+      correct.feedback!.explanation,
+      compact.questions[0]!.optionExplanations[0],
+    );
+    assert.equal(store.snapshot().course!.completed, 0);
+  } finally {
+    store.close();
+  }
+});
+
+test("quiz streaming reports progress without exposing unvalidated questions or answer keys", async () => {
+  const { store, connection, course } = setup();
+  const events: unknown[] = [];
+  const learning = new Learning(store, connection, (event) =>
+    events.push(event),
+  );
+  // The production interface accepts a delta callback; this fixture deliberately
+  // emits JSON across token boundaries, including the private answer key.
+  const streaming = connection as {
+    generate: (...args: any[]) => Promise<string>;
+  };
+  streaming.generate = async (_m, _i, _input, delta, options) => {
+    assert.equal(options.webSearch, undefined);
+    const text = JSON.stringify(fixtureQuiz());
+    for (let i = 0; i < text.length; i += 17) delta(text.slice(i, i + 17));
+    return text;
+  };
+  try {
+    await learning.generateQuiz(
+      { lessonId: course.lessons[0]!.id, scope: "lesson" },
+      "Give two questions",
+    );
+    assert.ok(
+      events.some(
+        (e) => (e as { text: string }).text === "Writing question 1/2",
+      ),
+    );
+    assert.ok(
+      events.some(
+        (e) => (e as { text: string }).text === "Writing question 2/2",
+      ),
+    );
+    assert.doesNotMatch(
+      JSON.stringify(events),
+      /correctOption|An instance|Which statement/,
+    );
+  } finally {
+    store.close();
+  }
+});
+
+test("large lesson practice bounds source/history and stays scoped to the lesson", async () => {
+  const { store, learning, requests, course } = setup();
+  try {
+    store.db
+      .prepare("UPDATE SourceMaterials SET text=? WHERE courseId=?")
+      .run(
+        "[Slide 1]\n" +
+          "Relevant object state details. ".repeat(4000) +
+          "\n[Slide 2]\nUNRELATED_CONSTRUCTORS",
+        course.course!.id,
+      );
+    store.addMessage(
+      course.lessons[0]!.id,
+      "assistant",
+      "Lesson explanation ".repeat(3000),
+    );
+    await learning.generateQuiz(
+      { lessonId: course.lessons[0]!.id, scope: "lesson" },
+      "Give two questions",
+    );
+    const input = JSON.stringify(requests[0]!.input);
+    assert.ok(input.length < 32000);
+    assert.doesNotMatch(input, /UNRELATED_CONSTRUCTORS/);
+    assert.match(input, /Selected excerpts/);
   } finally {
     store.close();
   }

@@ -850,6 +850,16 @@ app
     await waitFor(
       "document.querySelectorAll('.quiz-option')[1].getAttribute('aria-checked')==='true'",
     );
+    const savedQuiz = () =>
+      JSON.parse(
+        store.db
+          .prepare("SELECT payload FROM Quizzes ORDER BY rowid DESC LIMIT 1")
+          .get().payload,
+      );
+    await click(
+      ".quiz-option",
+      (savedQuiz().questions[0].correctOption + 1) % 4,
+    );
     await click(".quiz-submit");
     await waitFor(
       "!!document.querySelector('.quiz-feedback.incorrect') && !document.querySelector('.quiz-loading')",
@@ -865,7 +875,7 @@ app
     await waitFor(
       "document.querySelectorAll('.quiz-option').length===4 && !document.querySelector('.quiz-feedback')",
     );
-    await click(".quiz-option", 2);
+    await click(".quiz-option", savedQuiz().questions[1].correctOption);
     await click(".quiz-submit");
     await waitFor(
       "!!document.querySelector('.quiz-feedback.correct') && !document.querySelector('.quiz-loading')",
@@ -875,7 +885,7 @@ app
       await waitFor(
         "!!document.querySelector('.quiz-submit') && !document.querySelector('.quiz-loading')",
       );
-      await click(".quiz-option", 0);
+      await click(".quiz-option", savedQuiz().questions[index].correctOption);
       await click(".quiz-submit");
       await waitFor(
         "!!document.querySelector('.quiz-feedback.correct') && !document.querySelector('.quiz-loading')",

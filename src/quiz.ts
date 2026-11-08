@@ -130,6 +130,42 @@ export const quizSchema = z
     "Quiz questions must be distinct.",
   );
 export type QuizData = z.infer<typeof quizSchema>;
+
+// Choice generation omits unused written-answer fields and the duplicate overall
+// explanation. Persisted quizzes still use quizSchema, including older banks.
+export function choiceGenerationSchema(
+  type: "multiple_choice" | "true_false",
+  count: number,
+  difficulty: "auto" | "easy" | "medium" | "hard",
+) {
+  const options = type === "multiple_choice" ? 4 : 2;
+  return z.object({
+    title: z.string().min(1).max(180),
+    questions: z
+      .array(
+        z.object({
+          type: z.literal(type),
+          prompt: z.string().min(10).max(6000),
+          topic: z.string().min(1).max(180),
+          difficulty:
+            difficulty === "auto"
+              ? z.enum(["easy", "medium", "hard"])
+              : z.literal(difficulty),
+          options: z.array(z.string().min(1).max(2000)).length(options),
+          correctOption: z
+            .number()
+            .int()
+            .min(0)
+            .max(options - 1),
+          optionExplanations: z
+            .array(z.string().min(10).max(3000))
+            .length(options),
+          references: z.array(z.string().max(200)).max(10),
+        }),
+      )
+      .length(count),
+  });
+}
 export type QuizAnswer = {
   index: number;
   answer: string;

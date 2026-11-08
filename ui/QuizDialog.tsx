@@ -38,6 +38,7 @@ export function QuizDialog({
     [error, setError] = useState(""),
     [answer, setAnswer] = useState("");
   const [progressText, setProgressText] = useState("");
+  const [generating, setGenerating] = useState(false);
   useEffect(
     () =>
       window.studyflow?.onEvent((event) => {
@@ -64,18 +65,22 @@ export function QuizDialog({
     setHistory(await command<QuizSummary[]>("quizList", target));
   }
   async function create(text: string) {
+    setGenerating(true);
     setProgressText("");
-    const generated = await command<QuizView>("quizGenerate", {
-      target:
-        "lessonId" in target ? { ...target, scope: quizScope(text) } : target,
-      request: text,
-      attachments,
-      practice,
-    });
-    setQuiz(generated);
-    setAnswer("");
-    await refresh();
-    await onChanged();
+    try {
+      const generated = await command<QuizView>("quizGenerate", {
+        target:
+          "lessonId" in target ? { ...target, scope: quizScope(text) } : target,
+        request: text,
+        attachments,
+        practice,
+      });
+      setQuiz(generated);
+      setAnswer("");
+      await Promise.all([refresh(), onChanged()]);
+    } finally {
+      setGenerating(false);
+    }
   }
   async function generate(text = request) {
     await run(() => create(text));
@@ -143,7 +148,7 @@ export function QuizDialog({
         <div className="quiz-loading" role="status">
           <LoaderCircle className="spin" size={22} />
           <span>
-            {quiz
+            {quiz && !generating
               ? t("Checking your answer…", "Kontrolujem tvoju odpoveď…")
               : progressText
                 ? localizeMessage(progressText, sk ? "sk" : "en")
