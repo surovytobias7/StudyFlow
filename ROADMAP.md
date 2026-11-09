@@ -55,7 +55,8 @@ Review priorities: protect study questions on connection failures; keep source r
 - [x] Backend/UI build and 55/55 automated tests passed. New tests cover real failure conditions, long-page references, named-document selection, bounded lesson context and interrupted persistence.
 - [x] Native Electron UI regression passed, including actual keyboard focus and Enter navigation after feedback, unchanged Normal Chat/Study progress, scroll behavior, Markdown/math/code, language switching and quiz restart. A first synthetic Enter test omitted the character event; corrected the keyboard harness and reran successfully. Quiz screenshots inspected.
 - [x] LIVE `gpt-6-luna` context acceptance passed: named oldest document among 10 files; relevant passage deep inside Page 12 with actual page attribution; original explanation recalled after 36 turns; two-question document quiz and SQLite reopen with progress unchanged. Evidence: `artifacts/context-live-0.1.6.json`. No extra AI request is introduced by the context improvements.
-- [ ] Windows production package, existing-installation update, shortcut and data-preservation verification.
+- [x] Windows production package and existing-installation update to 0.1.6 completed; packaged and installed ASAR SHA-256 match. Installer preserved the database, credentials, Local State and four material files. Evidence: `artifacts/installation-0.1.6.json`; backup: `%LOCALAPPDATA%/StudyFlow Backups/before-0.1.6-20261108-212743/`.
+- [x] Final installed-EXE verification completed 2026-11-09: startup without development servers, lesson/path completion and reversal, zoom/language/history persistence, and preservation of a disconnected study question across a failed connection and full process restart. Evidence: `artifacts/installed-local-0.1.6.log`. All 14 user database tables match their pre-update content hashes: `artifacts/profile-preservation-0.1.6.json`. Existing Desktop and Start-menu shortcuts still target the original installation.
 
 Additional review findings are deferred to keep the release bounded: durable per-conversation unsent drafts, long-history summarization, wider semantic quiz-quality evaluations, OCR/complete PPTX graphics, installer signing/automatic updates, account-revocation and physical-DPI coverage. These need separate implementation/acceptance work; they are not claimed complete. Existing chat deletion behavior remains unchanged.
 
@@ -138,7 +139,7 @@ Evidence paths above are under `%APPDATA%/StudyFlow/acceptance/`; local regressi
 - More responsive/accessibility checks; third-party technical diagnostics remain verbatim when no application translation is available.
 
 ## Next steps
-Use the updated installed v0.1.5 through the existing desktop shortcut. The quiz optimization and installed checks are complete; monitor real lesson quality and latency during daily use before further model/reasoning changes. OCR, complete PPTX visual rendering, signing/automatic updates, account switching, physical DPI testing and deterministic written mathematics remain deferred. Keep this file as the only roadmap.
+Use the updated installed v0.1.6 through the existing desktop shortcut. Reliability and learning-context fixes and installed checks are complete; monitor real lesson quality and latency during daily use before further model/reasoning changes. OCR, complete PPTX visual rendering, signing/automatic updates, account switching, physical DPI testing and deterministic written mathematics remain deferred. Keep this file as the only roadmap.
 
 ## Official sources checked
 - https://developers.openai.com/siwc/quickstart
